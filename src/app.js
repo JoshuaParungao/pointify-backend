@@ -13,7 +13,7 @@ const globalErrorHandler = require("./middlewares/errorHandler.middleware");
 const app = express();
 
 app.set("trust proxy", env.trustProxy);
-app.use(helmet());
+app.use(helmet({ contentSecurityPolicy: false, hsts: false }));
 app.use(cors({
   origin(origin, callback) {
     if (!origin) return callback(null, true);
