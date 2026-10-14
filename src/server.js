@@ -24,28 +24,47 @@ const ensureSchemaMigrations = async () => {
 
 const ensureDefaultBranches = async () => {
   try {
-    const existing = await prisma.branch.count();
-    if (existing === 0) {
-      await prisma.branch.create({
-        data: {
-          code: "MAIN",
-          name: "Main Branch",
-          address: "Med C Drugstore, Main Blvd.",
-          contactNo: "09123456789",
-          status: "ACTIVE",
-        },
+    // 1. Ensure Main Branch exists with name "Main Branch"
+    await prisma.branch.upsert({
+      where: { code: "MAIN" },
+      update: { name: "Main Branch", status: "ACTIVE" },
+      create: {
+        code: "MAIN",
+        name: "Main Branch",
+        address: "Med C Drugstore, Main Blvd.",
+        contactNo: "09123456789",
+        status: "ACTIVE",
+      },
+    });
+
+    // 2. Ensure Branch 1 exists and rename any existing Mabalacat Branch to Branch 1
+    const mabBranch = await prisma.branch.findUnique({ where: { code: "MAB" } });
+    if (mabBranch) {
+      await prisma.branch.update({
+        where: { code: "MAB" },
+        data: { name: "Branch 1", address: "Med C Drugstore, Branch 1" },
       });
-      await prisma.branch.create({
-        data: {
-          code: "MAB",
-          name: "Mabalacat Branch",
-          address: "Mabalacat City, Pampanga",
+    } else {
+      await prisma.branch.upsert({
+        where: { code: "BR1" },
+        update: { name: "Branch 1", status: "ACTIVE" },
+        create: {
+          code: "BR1",
+          name: "Branch 1",
+          address: "Med C Drugstore, Branch 1",
           contactNo: "09987654321",
           status: "ACTIVE",
         },
       });
-      logger.info("Default branches created successfully (MAIN, MAB)");
     }
+
+    // Rename any branch whose name is still "Mabalacat Branch" to "Branch 1"
+    await prisma.branch.updateMany({
+      where: { name: "Mabalacat Branch" },
+      data: { name: "Branch 1" },
+    });
+
+    logger.info("Default branches synchronized successfully: Main Branch, Branch 1");
   } catch (err) {
     logger.warn("Default branches sync warning", { error: err.message });
   }

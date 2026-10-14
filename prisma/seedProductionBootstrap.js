@@ -16,8 +16,8 @@ const seedProduction = async () => {
 
   const mabBranch = await prisma.branch.upsert({
     where: { code: "MAB" },
-    update: { name: "Mabalacat Branch", status: "ACTIVE" },
-    create: { code: "MAB", name: "Mabalacat Branch", status: "ACTIVE" },
+    update: { name: "Branch 1", status: "ACTIVE" },
+    create: { code: "MAB", name: "Branch 1", status: "ACTIVE" },
   });
   console.log(`- Branch MAB: ${mabBranch.id}`);
 
