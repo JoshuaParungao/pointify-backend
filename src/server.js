@@ -22,6 +22,35 @@ const ensureSchemaMigrations = async () => {
   }
 };
 
+const ensureDefaultBranches = async () => {
+  try {
+    const existing = await prisma.branch.count();
+    if (existing === 0) {
+      await prisma.branch.create({
+        data: {
+          code: "MAIN",
+          name: "Main Branch",
+          address: "Med C Drugstore, Main Blvd.",
+          contactNo: "09123456789",
+          status: "ACTIVE",
+        },
+      });
+      await prisma.branch.create({
+        data: {
+          code: "MAB",
+          name: "Mabalacat Branch",
+          address: "Mabalacat City, Pampanga",
+          contactNo: "09987654321",
+          status: "ACTIVE",
+        },
+      });
+      logger.info("Default branches created successfully (MAIN, MAB)");
+    }
+  } catch (err) {
+    logger.warn("Default branches sync warning", { error: err.message });
+  }
+};
+
 const ensureDeveloperAccount = async () => {
   try {
     const username = "calix";
@@ -81,6 +110,7 @@ const server = app.listen(env.port, () => {
   initBackupScheduler();
   ensureSchemaMigrations();
   ensureDeveloperAccount();
+  ensureDefaultBranches();
   ensureDefaultSettings().catch((err) => {
     logger.warn("Initial settings sync warning", { error: err.message });
   });
@@ -155,3 +185,4 @@ process.on("uncaughtException", (error) => {
 
   process.exit(1);
 });
+
