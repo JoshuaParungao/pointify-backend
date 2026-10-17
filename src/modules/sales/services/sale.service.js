@@ -977,7 +977,42 @@ const buildSaleItems = async (
 
         let targetBatch = null;
 
-        if (resolvedBatchId) {
+        if (itemPayload.batchCode?.trim()) {
+          const customCode = itemPayload.batchCode.trim();
+          targetBatch = await tx.inventoryBatch.findFirst({
+            where: {
+              branchId,
+              itemId: item.id,
+              batchCode: customCode,
+              status: "ACTIVE",
+            },
+          });
+          if (targetBatch) {
+            resolvedBatchId = targetBatch.id;
+          } else {
+            targetBatch = await tx.inventoryBatch.create({
+              data: {
+                branchId,
+                itemId: item.id,
+                batchCode: customCode,
+                quantityIn: quantity.toString(),
+                quantityAvailable: quantity.toString(),
+                unitCost: item.costPrice.toString(),
+                operationalUnitCost: item.costPrice.toString(),
+                sellingPrice1: item.price1.toString(),
+                sellingPrice2: item.price2.toString(),
+                sellingPrice3: item.price3.toString(),
+                sellingPrice4: item.price4.toString(),
+                sellingPrice5: item.price5.toString(),
+                remarks: "Custom batch entered during POS checkout",
+                status: "ACTIVE",
+                createdById: actor.id,
+                updatedById: actor.id,
+              },
+            });
+            resolvedBatchId = targetBatch.id;
+          }
+        } else if (resolvedBatchId) {
           targetBatch = await tx.inventoryBatch.findFirst({
             where: {
               id: resolvedBatchId,

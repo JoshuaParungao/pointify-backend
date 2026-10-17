@@ -50,6 +50,7 @@ const saleItemSchema = z.object({
   quantity: positiveNumber,
   unitPrice: nonNegativeNumber.optional(),
   batchId: z.string().trim().min(1).optional(),
+  batchCode: optionalString,
   serialId: z.string().trim().min(1).optional(),
   serialNumber: optionalString,
   warrantyType: optionalString,
