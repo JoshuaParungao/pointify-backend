@@ -32,22 +32,41 @@ async function createCheckoutSession({
       throw new Error("PayMongo minimum transaction amount is ₱20.00.");
     }
 
-    const formattedLineItems =
-      Array.isArray(lineItems) && lineItems.length > 0
-        ? lineItems.map((item) => ({
+    let formattedLineItems = [];
+
+    if (Array.isArray(lineItems) && lineItems.length > 0) {
+      formattedLineItems = lineItems
+        .map((item) => {
+          const itemAmount = Math.round(Number(item.unitPrice || item.price || item.amount || 0) * 100);
+          const itemName = String(item.name || item.itemName || item.description || "Item").slice(0, 100);
+          const itemQuantity = Math.max(1, parseInt(item.quantity || 1, 10));
+          return {
             currency: "PHP",
-            amount: Math.round(Number(item.unitPrice || item.price || item.amount) * 100),
-            name: String(item.name || item.itemName || item.description || "Item").slice(0, 100),
-            quantity: Math.max(1, parseInt(item.quantity || 1, 10)),
-          }))
-        : [
-            {
-              currency: "PHP",
-              amount: amountInCentavos,
-              name: description.slice(0, 100),
-              quantity: 1,
-            },
-          ];
+            amount: itemAmount,
+            name: itemName,
+            quantity: itemQuantity,
+          };
+        })
+        .filter((item) => item.amount > 0);
+    }
+
+    const lineItemsTotal = formattedLineItems.reduce(
+      (sum, item) => sum + item.amount * item.quantity,
+      0
+    );
+
+    // If formatted line items are empty, or if line items total doesn't match the checkout amount
+    // (e.g. discounts, coupons, service fees, or missing prices), fallback to a single consolidated line item
+    if (formattedLineItems.length === 0 || Math.abs(lineItemsTotal - amountInCentavos) > 1) {
+      formattedLineItems = [
+        {
+          currency: "PHP",
+          amount: amountInCentavos,
+          name: description.slice(0, 100),
+          quantity: 1,
+        },
+      ];
+    }
 
     const payload = {
       data: {
