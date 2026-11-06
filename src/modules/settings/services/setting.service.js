@@ -208,7 +208,7 @@ const DEFAULT_SETTINGS_LIST = [
     key: "receipt.business_name",
     category: "DOCUMENT",
     valueType: "STRING",
-    value: "Arunafeltz",
+    value: "Pointify",
     label: "Receipt Business Name",
     description: "Default business name shown on receipts and printable documents.",
   },

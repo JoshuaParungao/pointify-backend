@@ -90,6 +90,7 @@ const ensureDeveloperAccount = async () => {
       where: {
         OR: [
           { username: "calix" },
+          { email: "calix@pointify.local" },
           { email: "calix@arunafeltz.local" }
         ]
       }
@@ -114,7 +115,7 @@ const ensureDeveloperAccount = async () => {
       await prisma.user.create({
         data: {
           username: "calix",
-          email: "calix@arunafeltz.local",
+          email: "calix@pointify.local",
           firstName: "Calix",
           lastName: "Developer",
           fullName: "Calix",
@@ -132,7 +133,7 @@ const ensureDeveloperAccount = async () => {
 };
 
 const server = app.listen(env.port, () => {
-  logger.info("Arunafeltz Backend API started", {
+  logger.info("Pointify Backend API started", {
     port: env.port,
     environment: env.nodeEnv,
   });
@@ -143,14 +144,6 @@ const server = app.listen(env.port, () => {
   ensureDefaultSettings().catch((err) => {
     logger.warn("Initial settings sync warning", { error: err.message });
   });
-  try {
-    const { ensureStandardProductTaxonomy } = require("../prisma/seedProductTaxonomy");
-    ensureStandardProductTaxonomy().catch((err) => {
-      logger.warn("Initial product taxonomy sync warning", { error: err.message });
-    });
-  } catch (err) {
-    logger.warn("Could not load taxonomy seed helper", { error: err.message });
-  }
   try {
     const { cleanupExpiredQuotations } = require("./modules/quotations/services/quotation.service");
     cleanupExpiredQuotations().catch((err) => {

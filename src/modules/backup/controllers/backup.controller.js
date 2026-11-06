@@ -20,7 +20,7 @@ const exportBackup = async (req, res, next) => {
     const min = String(manila.getMinutes()).padStart(2, "0");
     const ss = String(manila.getSeconds()).padStart(2, "0");
 
-    const filename = `arunafeltz-backup-${yyyy}${mm}${dd}-${hh}${min}${ss}.json`;
+    const filename = `pointify-backup-${yyyy}${mm}${dd}-${hh}${min}${ss}.json`;
 
     res.setHeader("Content-Type", "application/json");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);

@@ -50,7 +50,7 @@ const runScheduledBackup = async (label = "SCHEDULED") => {
     const min = String(manila.getMinutes()).padStart(2, "0");
     const ss = String(manila.getSeconds()).padStart(2, "0");
 
-    const filename = `arunafeltz-backup-${yyyy}${mm}${dd}-${hh}${min}${ss}-${label}.json`;
+    const filename = `pointify-backup-${yyyy}${mm}${dd}-${hh}${min}${ss}-${label}.json`;
     const fullPath = path.join(BACKUP_DIR, filename);
 
     fs.writeFileSync(fullPath, JSON.stringify(snapshot, null, 2), "utf8");

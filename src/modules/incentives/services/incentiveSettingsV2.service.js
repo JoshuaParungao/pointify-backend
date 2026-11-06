@@ -611,7 +611,7 @@ const normalizeAccountConfigPayload = (
   });
 
   const pcBuild = normalizeCategoryConfig({
-    label: "PC Build Incentive",
+    label: "Bundle / Package Incentive",
     available: eligibility.pcBuild,
     enabled: Boolean(payload.pcBuildEnabled),
     ratePercent: payload.pcBuildRatePercent,

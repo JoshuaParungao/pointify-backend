@@ -14,7 +14,7 @@ const getHealthStatus = asyncHandler(async (req, res) => {
   return sendSuccess(res, {
     message: "Health check successful",
     data: {
-      service: "arunafeltz-backend",
+      service: "pointify-backend",
       status: "healthy",
       database: "reachable",
       environment: env.nodeEnv,

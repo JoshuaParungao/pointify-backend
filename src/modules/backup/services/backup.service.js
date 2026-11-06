@@ -88,7 +88,7 @@ const generateDatabaseSnapshot = async (actor = null) => {
 
   const snapshot = {
     version: "1.0.0",
-    system: "Arunafeltz Cloud POS & Business Management",
+    system: "Pointify Cloud POS & Business Management",
     exportedAt: new Date().toISOString(),
     exportedBy: actor
       ? {
