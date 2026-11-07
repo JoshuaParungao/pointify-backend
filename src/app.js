@@ -43,6 +43,7 @@ app.get("/", (req, res) => {
     data: {
       service: "pointify-backend",
       status: "online",
+      version: "1.0.2",
     },
   });
 });

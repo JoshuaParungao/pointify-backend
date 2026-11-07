@@ -1,39 +1,106 @@
+const zlib = require("zlib");
 const pdfParseModule = require("pdf-parse");
 const prisma = require("../../../config/prisma");
 const logger = require("../../../utils/logger");
 
 /**
- * Extract raw text and page count from a PDF Buffer across pdf-parse v1 and v2+
+ * Pure Node.js fallback PDF text extractor using zlib FlateDecode stream decompression
  */
-async function extractTextFromPdfBuffer(pdfBuffer) {
-  if (typeof pdfParseModule === "function") {
-    const res = await pdfParseModule(pdfBuffer);
-    return {
-      text: res?.text || "",
-      numpages: res?.numpages || 1,
-    };
-  }
+function extractTextFallbackFromPdfBuffer(pdfBuffer) {
+  try {
+    const rawLatin1 = Buffer.from(pdfBuffer).toString("latin1");
+    const chunks = [];
+    const streamRegex = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
+    let match;
 
-  if (pdfParseModule && typeof pdfParseModule.PDFParse === "function") {
-    const parser = new pdfParseModule.PDFParse({
-      data: new Uint8Array(pdfBuffer),
-    });
-    try {
-      const res = await parser.getText();
-      return {
-        text: res?.text || "",
-        numpages: res?.total || res?.pages?.length || 1,
-      };
-    } finally {
+    while ((match = streamRegex.exec(rawLatin1)) !== null) {
+      const streamBytes = Buffer.from(match[1], "latin1");
+      let decoded = "";
       try {
-        await parser.destroy();
+        decoded = zlib.inflateSync(streamBytes).toString("latin1");
       } catch {
-        // ignore cleanup error
+        try {
+          decoded = zlib.inflateRawSync(streamBytes).toString("latin1");
+        } catch {
+          decoded = match[1];
+        }
+      }
+
+      if (decoded.includes("BT") || decoded.includes("Tj") || decoded.includes("TJ")) {
+        const lines = [];
+        const tjBlocks = decoded.match(/BT[\s\S]*?ET/g) || [decoded];
+        for (const block of tjBlocks) {
+          const strMatches = block.match(/\((?:\\.|[^\\()])*\)/g) || [];
+          if (strMatches.length > 0) {
+            const textLine = strMatches
+              .map((s) =>
+                s
+                  .slice(1, -1)
+                  .replace(/\\n/g, "\n")
+                  .replace(/\\r/g, " ")
+                  .replace(/\\t/g, " ")
+                  .replace(/\\\(/g, "(")
+                  .replace(/\\\)/g, ")")
+                  .replace(/\\\\/g, "\\")
+              )
+              .join(" ");
+            lines.push(textLine);
+          }
+        }
+        if (lines.length > 0) {
+          chunks.push(lines.join("\n"));
+        }
       }
     }
+
+    return chunks.join("\n");
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Extract raw text and page count from a PDF Buffer across pdf-parse v1, v2+, and pure-Node fallback
+ */
+async function extractTextFromPdfBuffer(pdfBuffer) {
+  try {
+    if (typeof pdfParseModule === "function") {
+      const res = await pdfParseModule(pdfBuffer);
+      return {
+        text: res?.text || "",
+        numpages: res?.numpages || 1,
+      };
+    }
+
+    if (pdfParseModule && typeof pdfParseModule.PDFParse === "function") {
+      const parser = new pdfParseModule.PDFParse({
+        data: new Uint8Array(pdfBuffer),
+      });
+      try {
+        const res = await parser.getText();
+        return {
+          text: res?.text || "",
+          numpages: res?.total || res?.pages?.length || 1,
+        };
+      } finally {
+        try {
+          await parser.destroy();
+        } catch {
+          // ignore cleanup error
+        }
+      }
+    }
+  } catch (pdfErr) {
+    logger.warn("Primary pdf-parse failed, using fallback stream extractor", {
+      error: pdfErr.message,
+    });
   }
 
-  throw new Error("PDF_PARSER_UNAVAILABLE: PDF parser library is not properly initialized.");
+  const fallbackText = extractTextFallbackFromPdfBuffer(pdfBuffer);
+  return {
+    text: fallbackText,
+    numpages: 1,
+  };
 }
 
 /**
@@ -532,55 +599,63 @@ async function matchWithDatabase(parsedData, branchId) {
   // 0. If quotationNumber matches an existing Pointify Quotation in DB, cross-check & enrich!
   let matchedQuotation = null;
   if (documentInfo.quotationNumber) {
-    const cleanNum = documentInfo.quotationNumber.replace(/^0+/, "") || "0";
-    const paddedNum = cleanNum.padStart(4, "0");
-    const dbQuotations = await prisma.quotation.findMany({
-      where: {
-        ...(branchId ? { branchId } : {}),
-        OR: [
-          { quotationCode: { equals: documentInfo.quotationNumber, mode: "insensitive" } },
-          { quotationCode: { endsWith: `-${paddedNum}`, mode: "insensitive" } },
-          { quotationCode: { endsWith: `-${cleanNum}`, mode: "insensitive" } },
-          { quotationCode: { contains: documentInfo.quotationNumber, mode: "insensitive" } },
-        ],
-      },
-      include: {
-        customer: true,
-        items: {
-          include: {
-            item: true,
-          },
-          orderBy: { lineNumber: "asc" },
+    try {
+      const cleanNum = documentInfo.quotationNumber.replace(/^0+/, "") || "0";
+      const padded4 = cleanNum.padStart(4, "0");
+      const padded5 = cleanNum.padStart(5, "0");
+      const dbQuotations = await prisma.quotation.findMany({
+        where: {
+          ...(branchId ? { branchId } : {}),
+          OR: [
+            { quotationCode: { equals: documentInfo.quotationNumber, mode: "insensitive" } },
+            { quotationCode: { equals: padded5, mode: "insensitive" } },
+            { quotationCode: { equals: padded4, mode: "insensitive" } },
+            { quotationCode: { endsWith: `-${padded5}`, mode: "insensitive" } },
+            { quotationCode: { endsWith: `-${padded4}`, mode: "insensitive" } },
+            { quotationCode: { endsWith: `-${cleanNum}`, mode: "insensitive" } },
+            { quotationCode: { contains: documentInfo.quotationNumber, mode: "insensitive" } },
+          ],
         },
-      },
-      orderBy: { createdAt: "desc" },
-      take: 1,
-    });
+        include: {
+          customer: true,
+          items: {
+            include: {
+              item: true,
+            },
+            orderBy: { lineNo: "asc" },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 1,
+      });
 
-    if (dbQuotations.length > 0) {
-      matchedQuotation = dbQuotations[0];
-      documentInfo.quotationNumber = matchedQuotation.quotationCode;
+      if (dbQuotations.length > 0) {
+        matchedQuotation = dbQuotations[0];
+        documentInfo.quotationNumber = matchedQuotation.quotationCode;
 
-      if (!customer.name && matchedQuotation.customer?.fullName) {
-        customer.name = matchedQuotation.customer.fullName;
-        customer.contactNumber = customer.contactNumber || matchedQuotation.customer.mobileNumber || "";
-        customer.email = customer.email || matchedQuotation.customer.email || "";
-        customer.address = customer.address || matchedQuotation.customer.address || "";
+        if (!customer.name && matchedQuotation.customer?.fullName) {
+          customer.name = matchedQuotation.customer.fullName;
+          customer.contactNumber = customer.contactNumber || matchedQuotation.customer.mobileNumber || "";
+          customer.email = customer.email || matchedQuotation.customer.email || "";
+          customer.address = customer.address || matchedQuotation.customer.address || "";
+        }
+
+        // If PDF text extraction missed items or had partial lines, use the exact DB quotation items
+        if (items.length === 0 && Array.isArray(matchedQuotation.items) && matchedQuotation.items.length > 0) {
+          items = matchedQuotation.items.map((qi) => ({
+            rawItemCode: qi.item?.itemCode || qi.itemCodeSnapshot || "",
+            rawDescription: qi.item?.itemName || qi.itemNameSnapshot || qi.description || "Quotation Item",
+            quantity: Number(qi.quantity || 1),
+            unitPrice: Number(qi.unitPrice || 0),
+            lineTotal: Number(qi.lineTotal || 0),
+          }));
+          financials.subtotal = Number(matchedQuotation.subtotal || 0);
+          financials.discount = Number(matchedQuotation.totalDiscount || 0);
+          financials.totalAmount = Number(matchedQuotation.grandTotal || 0);
+        }
       }
-
-      // If PDF text extraction missed items or had partial lines, use the exact DB quotation items
-      if (items.length === 0 && Array.isArray(matchedQuotation.items) && matchedQuotation.items.length > 0) {
-        items = matchedQuotation.items.map((qi) => ({
-          rawItemCode: qi.item?.itemCode || "",
-          rawDescription: qi.item?.itemName || qi.description || "Quotation Item",
-          quantity: Number(qi.quantity || 1),
-          unitPrice: Number(qi.unitPrice || 0),
-          lineTotal: Number(qi.lineTotal || 0),
-        }));
-        financials.subtotal = Number(matchedQuotation.subtotal || 0);
-        financials.discount = Number(matchedQuotation.discountTotal || 0);
-        financials.totalAmount = Number(matchedQuotation.grandTotal || 0);
-      }
+    } catch (dbLookupErr) {
+      logger.warn("Quotation DB cross-check skipped", { error: dbLookupErr.message });
     }
   }
 
@@ -599,64 +674,73 @@ async function matchWithDatabase(parsedData, branchId) {
       matchConfidence: 1.0,
     };
   } else if (customer.name && customer.name.length >= 2) {
-    const existingCustomers = await prisma.customer.findMany({
+    try {
+      const existingCustomers = await prisma.customer.findMany({
+        where: {
+          ...(branchId ? { branchId } : {}),
+          status: "ACTIVE",
+        },
+        select: {
+          id: true,
+          customerCode: true,
+          fullName: true,
+          mobileNumber: true,
+          email: true,
+          address: true,
+          priceTier: true,
+        },
+        take: 100,
+      });
+
+      let bestCustSim = 0;
+      for (const ec of existingCustomers) {
+        const sim = calculateSimilarity(ec.fullName, customer.name);
+        if (sim >= 0.7 && sim > bestCustSim) {
+          bestCustSim = sim;
+          matchedCustomer = {
+            id: ec.id,
+            customerCode: ec.customerCode,
+            fullName: ec.fullName,
+            mobileNumber: ec.mobileNumber || customer.contactNumber,
+            email: ec.email || customer.email,
+            address: ec.address || customer.address,
+            priceTier: ec.priceTier,
+            matchConfidence: sim,
+          };
+        }
+      }
+    } catch (custErr) {
+      logger.warn("Customer matching skipped", { error: custErr.message });
+    }
+  }
+
+  // 2. Fetch catalog items for matching
+  let catalogItems = [];
+  try {
+    catalogItems = await prisma.item.findMany({
       where: {
         ...(branchId ? { branchId } : {}),
         status: "ACTIVE",
       },
       select: {
         id: true,
-        customerCode: true,
-        fullName: true,
-        mobileNumber: true,
-        email: true,
-        address: true,
-        priceTier: true,
+        itemCode: true,
+        itemName: true,
+        barcode: true,
+        price1: true,
+        price2: true,
+        price3: true,
+        price4: true,
+        price5: true,
+        costPrice: true,
+        isSerialized: true,
+        hasWarranty: true,
       },
-      take: 100,
+      take: 1000,
     });
-
-    let bestCustSim = 0;
-    for (const ec of existingCustomers) {
-      const sim = calculateSimilarity(ec.fullName, customer.name);
-      if (sim >= 0.7 && sim > bestCustSim) {
-        bestCustSim = sim;
-        matchedCustomer = {
-          id: ec.id,
-          customerCode: ec.customerCode,
-          fullName: ec.fullName,
-          mobileNumber: ec.mobileNumber || customer.contactNumber,
-          email: ec.email || customer.email,
-          address: ec.address || customer.address,
-          priceTier: ec.priceTier,
-          matchConfidence: sim,
-        };
-      }
-    }
+  } catch (itemErr) {
+    logger.warn("Catalog item lookup skipped", { error: itemErr.message });
   }
-
-  // 2. Fetch catalog items for matching
-  const catalogItems = await prisma.item.findMany({
-    where: {
-      ...(branchId ? { branchId } : {}),
-      status: "ACTIVE",
-    },
-    select: {
-      id: true,
-      itemCode: true,
-      itemName: true,
-      barcode: true,
-      price1: true,
-      price2: true,
-      price3: true,
-      price4: true,
-      price5: true,
-      costPrice: true,
-      isSerialized: true,
-      hasWarranty: true,
-    },
-    take: 1000,
-  });
 
   const enrichedItems = items.map((item) => {
     let bestMatch = null;
