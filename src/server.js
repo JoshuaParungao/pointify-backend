@@ -4,6 +4,7 @@ const logger = require("./utils/logger");
 const prisma = require("./config/prisma");
 const { initBackupScheduler } = require("./modules/backup/services/backupScheduler.service");
 const { ensureDefaultSettings } = require("./modules/settings/services/setting.service");
+const { cleanupLegacyComputerCatalog } = require("./utils/catalogPurge");
 const bcrypt = require("bcryptjs");
 
 const ensureSchemaMigrations = async () => {
@@ -141,6 +142,7 @@ const server = app.listen(env.port, () => {
   ensureSchemaMigrations();
   ensureDeveloperAccount();
   ensureDefaultBranches();
+  cleanupLegacyComputerCatalog();
   ensureDefaultSettings().catch((err) => {
     logger.warn("Initial settings sync warning", { error: err.message });
   });

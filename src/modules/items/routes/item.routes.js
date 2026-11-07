@@ -30,6 +30,13 @@ router.post(
   itemController.createItem
 );
 
+router.delete(
+  "/clear-all",
+  protect,
+  requirePermission(PERMISSIONS.MANAGE_CATALOG),
+  itemController.clearAllItems
+);
+
 router.get(
   "/:id",
   protect,
@@ -44,6 +51,14 @@ router.patch(
   requirePermission(PERMISSIONS.MANAGE_CATALOG),
   validate(updateItemSchema),
   itemController.updateItemById
+);
+
+router.delete(
+  "/:id",
+  protect,
+  requirePermission(PERMISSIONS.MANAGE_CATALOG),
+  validate(itemIdParamSchema),
+  itemController.deleteItemById
 );
 
 module.exports = router;

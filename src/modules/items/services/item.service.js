@@ -1,5 +1,6 @@
 const prisma = require("../../../config/prisma");
 const AppError = require("../../../utils/appError");
+const { purgeItemsByIds } = require("../../../utils/catalogPurge");
 
 const ITEM_SELECT = {
   id: true,
@@ -671,6 +672,8 @@ const listItems = async (filters = {}, actor) => {
 
   const where = {
     branchId,
+    itemCode: { not: { startsWith: "__DELETED_" } },
+    itemName: { not: { startsWith: "__DELETED_" } },
     ...(filters.categoryId ? { categoryId: categoryCondition } : {}),
     ...(filters.brand && filters.brand.trim()
       ? { brand: { contains: filters.brand.trim(), mode: "insensitive" } }
@@ -909,10 +912,43 @@ const updateItemById = async (itemId, payload, actor) => {
   });
 };
 
+const deleteItemById = async (itemId, actor) => {
+  const existingItem = await getItemById(itemId, actor);
+  await purgeItemsByIds([existingItem.id]);
+  return {
+    success: true,
+    message: `Item "${existingItem.itemName}" deleted successfully.`,
+  };
+};
+
+const clearAllItems = async (actor, requestedBranchId) => {
+  if (actor.role !== "SUPER_OWNER" && actor.role !== "ADMIN" && actor.role !== "BRANCH_OWNER") {
+    throw new AppError("Only Owner or Admin can clear items", 403, "FORBIDDEN");
+  }
+
+  const branchId = getActorBranchIdForCreate(actor, requestedBranchId);
+  const branch = await getActiveBranchOrThrow(branchId);
+
+  const branchItems = await prisma.item.findMany({
+    where: { branchId: branch.id },
+    select: { id: true },
+  });
+
+  const { deletedCount } = await purgeItemsByIds(branchItems.map((i) => i.id));
+
+  return {
+    success: true,
+    deletedCount,
+    message: `All ${deletedCount} items in ${branch.name} have been cleared successfully.`,
+  };
+};
+
 module.exports = {
   ITEM_SELECT,
   createItem,
   listItems,
   getItemById,
   updateItemById,
+  deleteItemById,
+  clearAllItems,
 };

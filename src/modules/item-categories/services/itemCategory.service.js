@@ -1,5 +1,6 @@
 const prisma = require("../../../config/prisma");
 const AppError = require("../../../utils/appError");
+const { purgeItemsByIds } = require("../../../utils/catalogPurge");
 
 const ITEM_CATEGORY_SELECT = {
   id: true,
@@ -512,6 +513,8 @@ const listItemCategories = async (filters = {}, actor) => {
   const where = {
     branchId,
     status: filters.status,
+    categoryCode: { not: { startsWith: "__DELETED_" } },
+    name: { not: { startsWith: "__DELETED_" } },
   };
 
   if (filters.parentId !== undefined) {
@@ -745,15 +748,12 @@ const deleteItemCategoryById = async (categoryId, actor) => {
     throw new AppError("Category not found", 404, "CATEGORY_NOT_FOUND");
   }
 
-  const itemsCount = await prisma.item.count({
+  const assignedItems = await prisma.item.findMany({
     where: { categoryId: existingCategory.id },
+    select: { id: true },
   });
-  if (itemsCount > 0) {
-    throw new AppError(
-      "Cannot delete category with items assigned to it. Please reassign or delete items first.",
-      400,
-      "CATEGORY_HAS_ITEMS"
-    );
+  if (assignedItems.length > 0) {
+    await purgeItemsByIds(assignedItems.map((i) => i.id));
   }
 
   // Unlink any child categories
@@ -777,15 +777,12 @@ const clearAllCategories = async (actor, requestedBranchId) => {
   const branchId = getActorBranchIdForCreate(actor, requestedBranchId);
   const branch = await getActiveBranchOrThrow(branchId);
 
-  const itemsCount = await prisma.item.count({
+  const branchItems = await prisma.item.findMany({
     where: { branchId: branch.id },
+    select: { id: true },
   });
-  if (itemsCount > 0) {
-    throw new AppError(
-      `Cannot clear categories in ${branch.name} while items/products exist in this branch's catalog. Please delete or reassign items first.`,
-      400,
-      "ITEMS_EXIST"
-    );
+  if (branchItems.length > 0) {
+    await purgeItemsByIds(branchItems.map((i) => i.id));
   }
 
   await prisma.itemCategory.updateMany({
