@@ -572,23 +572,30 @@ async function importPharmacyAndDeviceCatalog() {
             for (const b of prod.batches) {
               const expDate = b.expiryDate ? new Date(b.expiryDate) : null;
               const recDate = b.receivedAt ? new Date(b.receivedAt) : new Date();
+              const uniqueBatchCode = `${b.batchCode}-${prod.itemCode}`.slice(0, 50);
 
-              await prisma.inventoryBatch.create({
-                data: {
-                  branchId: branch.id,
-                  itemId: itemRecord.id,
-                  batchCode: b.batchCode,
-                  quantityIn: b.quantity,
-                  quantityAvailable: b.quantity,
-                  unitCost: b.costPrice,
-                  sellingPrice1: prod.price1,
-                  expiryDate: expDate && !isNaN(expDate.getTime()) ? expDate : null,
-                  receivedAt: recDate && !isNaN(recDate.getTime()) ? recDate : new Date(),
-                  status: "ACTIVE",
-                  remarks: "Imported from legacy POS database",
-                },
+              const existingBatch = await prisma.inventoryBatch.findFirst({
+                where: { branchId: branch.id, batchCode: uniqueBatchCode },
               });
-              totalBatchesCreated++;
+
+              if (!existingBatch) {
+                await prisma.inventoryBatch.create({
+                  data: {
+                    branchId: branch.id,
+                    itemId: itemRecord.id,
+                    batchCode: uniqueBatchCode,
+                    quantityIn: b.quantity,
+                    quantityAvailable: b.quantity,
+                    unitCost: b.costPrice,
+                    sellingPrice1: prod.price1,
+                    expiryDate: expDate && !isNaN(expDate.getTime()) ? expDate : null,
+                    receivedAt: recDate && !isNaN(recDate.getTime()) ? recDate : new Date(),
+                    status: "ACTIVE",
+                    remarks: "Imported from legacy POS database",
+                  },
+                });
+                totalBatchesCreated++;
+              }
             }
           }
         }
