@@ -23,11 +23,27 @@ const globalErrorHandler = (error, req, res, next) => {
     });
   }
 
+  let errorCode = error.code || "INTERNAL_SERVER_ERROR";
+  let errorMessage = error.message || "Something went wrong. Please try again later.";
+
+  if (statusCode === 403) {
+    if (!errorMessage || errorMessage.toLowerCase() === "forbidden") {
+      errorMessage = "Account restricted: You do not have permission to perform this action.";
+    } else if (!errorMessage.toLowerCase().startsWith("account restricted")) {
+      errorMessage = `Account restricted: ${errorMessage}`;
+    }
+    if (errorCode === "FORBIDDEN" || errorCode === "INTERNAL_SERVER_ERROR") {
+      errorCode = "ACCOUNT_RESTRICTED";
+    }
+  }
+
   const response = {
     success: false,
+    message: errorMessage,
+    errorCode,
     error: {
-      code: error.code || "INTERNAL_SERVER_ERROR",
-      message: error.message || "Something went wrong. Please try again later.",
+      code: errorCode,
+      message: errorMessage,
     },
   };
 

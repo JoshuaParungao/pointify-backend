@@ -48,7 +48,7 @@ const requireBranchAccess = (source = "auto") => {
     if (!req.user.branchId) {
       return next(
         new AppError(
-          "User is not assigned to a branch",
+          "Account restricted: User is not assigned to a branch.",
           403,
           "USER_BRANCH_NOT_ASSIGNED"
         )
@@ -58,7 +58,7 @@ const requireBranchAccess = (source = "auto") => {
     if (req.user.branchId !== requestedBranchId) {
       return next(
         new AppError(
-          "You do not have access to this branch",
+          "Account restricted: You do not have access to this branch.",
           403,
           "BRANCH_ACCESS_DENIED"
         )

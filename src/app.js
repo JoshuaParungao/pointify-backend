@@ -48,6 +48,41 @@ app.get("/", (req, res) => {
   });
 });
 
+app.use((req, res, next) => {
+  const originalJson = res.json.bind(res);
+  res.json = function (body) {
+    if (res.statusCode === 403 && body && typeof body === "object") {
+      const currentMsg =
+        body.message ||
+        body.error?.message ||
+        (typeof body.error === "string" ? body.error : "");
+      let restrictedMsg;
+      if (!currentMsg || currentMsg.toLowerCase() === "forbidden") {
+        restrictedMsg = "Account restricted: You do not have permission to perform this action.";
+      } else if (currentMsg.toLowerCase().startsWith("account restricted")) {
+        restrictedMsg = currentMsg;
+      } else {
+        restrictedMsg = `Account restricted: ${currentMsg}`;
+      }
+
+      body.message = restrictedMsg;
+      if (body.error && typeof body.error === "object") {
+        body.error.message = restrictedMsg;
+        if (!body.error.code || body.error.code === "FORBIDDEN" || body.error.code === "INTERNAL_SERVER_ERROR") {
+          body.error.code = "ACCOUNT_RESTRICTED";
+        }
+      } else if (typeof body.error === "string") {
+        body.error = restrictedMsg;
+      }
+      if (!body.errorCode || body.errorCode === "FORBIDDEN") {
+        body.errorCode = body.errorCode || "ACCOUNT_RESTRICTED";
+      }
+    }
+    return originalJson(body);
+  };
+  next();
+});
+
 app.use("/api", apiRoutes);
 
 app.use(notFound);

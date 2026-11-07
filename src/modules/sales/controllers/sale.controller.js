@@ -18,7 +18,7 @@ const handleSaleError = (error, res, next) => {
     QUOTATION_TOTAL_MISMATCH: [400, "Approved quotation totals are inconsistent and cannot be converted."],
     ITEM_NOT_FOUND: [404, "Item not found for this branch."],
     PRICE_TIER_REQUIRED: [400, "Price tier is required for inventory item."],
-    STAFF_CUSTOM_PRICE_NOT_ALLOWED: [403, "Staff cannot set custom price for inventory items."],
+    STAFF_CUSTOM_PRICE_NOT_ALLOWED: [403, "Account restricted: Staff cannot set custom price for inventory items."],
     DESCRIPTION_REQUIRED: [400, "Description is required for custom sale line."],
     UNIT_PRICE_REQUIRED: [400, "Unit price is required for custom sale line."],
     INVALID_MARKUP_PERCENT: [400, "Mark up percentage must be at least 0 and less than 100."],

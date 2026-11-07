@@ -18,9 +18,9 @@ const requirePermission = (permission) => {
     if (!allowed) {
       return next(
         new AppError(
-          "You do not have permission to perform this action",
+          "Account restricted: You do not have permission to perform this action.",
           403,
-          "FORBIDDEN"
+          "ACCOUNT_RESTRICTED"
         )
       );
     }
@@ -48,9 +48,9 @@ const requireAnyPermission = (permissions = []) => {
     if (!allowed) {
       return next(
         new AppError(
-          "You do not have permission to perform this action",
+          "Account restricted: You do not have permission to perform this action.",
           403,
-          "FORBIDDEN"
+          "ACCOUNT_RESTRICTED"
         )
       );
     }

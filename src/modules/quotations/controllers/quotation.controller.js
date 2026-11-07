@@ -11,7 +11,7 @@ const handleQuotationError = (error, res, next) => {
     PREPARED_BY_NOT_FOUND: [404, "Prepared by user not found for this branch."],
     SERVICE_DONE_BY_NOT_ELIGIBLE: [400, "Selected service staff is not eligible for this quotation."],
     ITEM_NOT_FOUND: [404, "Item not found for this branch."],
-    STAFF_CUSTOM_PRICE_NOT_ALLOWED: [403, "Staff cannot set custom price for inventory items."],
+    STAFF_CUSTOM_PRICE_NOT_ALLOWED: [403, "Account restricted: Staff cannot set custom price for inventory items."],
     DESCRIPTION_REQUIRED: [400, "Description is required for custom quotation line."],
     UNIT_PRICE_REQUIRED: [400, "Unit price is required for custom quotation line."],
     INVALID_MARKUP_PERCENT: [400, "Mark up percentage must be at least 0 and less than 100."],
