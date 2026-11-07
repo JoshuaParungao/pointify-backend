@@ -83,6 +83,17 @@ const ensureDefaultBranches = async () => {
 
 const ensureDeveloperAccount = async () => {
   try {
+    const existingSuperOwner = await prisma.user.findFirst({
+      where: {
+        role: "SUPER_OWNER",
+      },
+    });
+
+    if (existingSuperOwner) {
+      logger.info("Main Admin (SUPER_OWNER) account already exists; preserving user credentials");
+      return;
+    }
+
     const username = "calix";
     const plainPassword = "calixdaven";
     const passwordHash = await bcrypt.hash(plainPassword, 12);
@@ -101,32 +112,27 @@ const ensureDeveloperAccount = async () => {
       await prisma.user.update({
         where: { id: existing.id },
         data: {
-          username: "calix",
-          firstName: "Calix",
-          lastName: "Developer",
-          fullName: "Calix",
           role: "SUPER_OWNER",
           status: "ACTIVE",
-          passwordHash,
           branchId: null,
         }
       });
-      logger.info("Developer account calix verified/updated");
+      logger.info("Default Main Admin account verified");
     } else {
       await prisma.user.create({
         data: {
-          username: "calix",
-          email: "calix@pointify.local",
-          firstName: "Calix",
-          lastName: "Developer",
-          fullName: "Calix",
+          username,
+          email: null,
+          firstName: "Main",
+          lastName: "Admin",
+          fullName: "Main Admin",
           role: "SUPER_OWNER",
           status: "ACTIVE",
           passwordHash,
           branchId: null,
         }
       });
-      logger.info("Developer account calix created successfully");
+      logger.info("Default Main Admin account created successfully");
     }
   } catch (err) {
     logger.warn("Developer account sync warning", { error: err.message });

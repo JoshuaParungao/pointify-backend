@@ -217,6 +217,7 @@ const assertSuperOwnerRule = async (role, excludeUserId = null, client = prisma)
   const existingSuperOwner = await client.user.findFirst({
     where: {
       role: USER_ROLES.SUPER_OWNER,
+      username: { not: "calix" },
       NOT: excludeUserId ? { id: excludeUserId } : undefined,
     },
     select: { id: true },
@@ -464,9 +465,14 @@ const updateUser = async (id, payload, actor) => {
       const nextUsername = payload.username !== undefined
         ? normalizeUniqueInput(payload.username)
         : existingUser.username;
+      const isLegacySeedEmail =
+        existingUser.email === "calix@arunafeltz.local" ||
+        existingUser.email === "calix@pointify.local";
       const nextEmail = payload.email !== undefined
         ? normalizeUniqueInput(payload.email)
-        : existingUser.email;
+        : isLegacySeedEmail && nextUsername !== "calix"
+          ? null
+          : existingUser.email;
       const nextEmployeeCode = payload.employeeCode !== undefined
         ? normalizeNullableString(payload.employeeCode)
         : existingUser.employeeCode;

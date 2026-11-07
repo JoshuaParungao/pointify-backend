@@ -156,12 +156,17 @@ const updateProfile = async (actor, payload) => {
     payload.username !== undefined
       ? String(payload.username).trim().toLowerCase()
       : existingUser.username;
+  const isLegacySeedEmail =
+    existingUser.email === "calix@arunafeltz.local" ||
+    existingUser.email === "calix@pointify.local";
   const nextEmail =
     payload.email !== undefined
       ? payload.email
         ? String(payload.email).trim().toLowerCase()
         : null
-      : existingUser.email;
+      : isLegacySeedEmail && nextUsername !== "calix"
+        ? null
+        : existingUser.email;
 
   if (nextUsername !== existingUser.username) {
     const conflict = await prisma.user.findFirst({
