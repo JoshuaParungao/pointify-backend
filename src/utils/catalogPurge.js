@@ -58,6 +58,41 @@ const LEGACY_COMPUTER_ITEM_CODES = [
   "ITEM-MAIN-API-001",
 ];
 
+const LEGACY_SERVICE_CATALOG_IDS = new Set([
+  "sc-clean-laptop",
+  "sc-clean-desktop",
+  "sc-format-os",
+  "sc-screen-laptop",
+  "sc-gpu-repaste",
+  "sc-board-power",
+  "sc-macbook-liquid",
+  "sc-printer-clean",
+  "sc-monitor-board",
+  "sc-smartphone-lcd",
+  "sc-console-clean",
+  "sc-pccomponent-diagnosis",
+  "sc-pms-general",
+  "sc-setup-config",
+  "sc-part-install",
+  "sc-advanced-overhaul",
+  "sc-bench-diagnosis",
+]);
+
+const LEGACY_SERVICE_PART_IDS = new Set([
+  "sp-lcd-156-slim-30p",
+  "sp-lcd-140-slim-30p",
+  "sp-thermal-paste-paste",
+  "sp-thermal-pad-kit",
+  "sp-laptop-battery-std",
+  "sp-laptop-keyboard-std",
+  "sp-power-ic-chip",
+  "sp-dc-jack-port",
+  "sp-std-module",
+  "sp-maint-consumable",
+  "sp-power-unit",
+  "sp-precision-part",
+]);
+
 async function purgeItemsByIds(itemIds = []) {
   const uniqueIds = Array.from(new Set(itemIds.filter(Boolean)));
   if (uniqueIds.length === 0) return { deletedCount: 0 };
@@ -167,6 +202,37 @@ async function cleanupLegacyComputerCatalog() {
       removedItems: legacyItems.length,
       removedCategories: legacyCategoryIds.length,
     });
+
+    // Also clean legacy service catalog and service parts catalog entries
+    const serviceCatSetting = await prisma.businessSetting.findUnique({
+      where: { scopeKey: "GLOBAL:service.catalog" },
+    });
+    if (serviceCatSetting && Array.isArray(serviceCatSetting.value)) {
+      const filteredServices = serviceCatSetting.value.filter(
+        (item) => item && !LEGACY_SERVICE_CATALOG_IDS.has(item.id)
+      );
+      if (filteredServices.length !== serviceCatSetting.value.length) {
+        await prisma.businessSetting.update({
+          where: { scopeKey: "GLOBAL:service.catalog" },
+          data: { value: filteredServices },
+        });
+      }
+    }
+
+    const servicePartsSetting = await prisma.businessSetting.findUnique({
+      where: { scopeKey: "GLOBAL:service.parts.catalog" },
+    });
+    if (servicePartsSetting && Array.isArray(servicePartsSetting.value)) {
+      const filteredParts = servicePartsSetting.value.filter(
+        (item) => item && !LEGACY_SERVICE_PART_IDS.has(item.id)
+      );
+      if (filteredParts.length !== servicePartsSetting.value.length) {
+        await prisma.businessSetting.update({
+          where: { scopeKey: "GLOBAL:service.parts.catalog" },
+          data: { value: filteredParts },
+        });
+      }
+    }
   } catch (err) {
     logger.warn("Legacy computer catalog cleanup warning", { error: err.message });
   }
@@ -178,3 +244,4 @@ module.exports = {
   purgeItemsByIds,
   cleanupLegacyComputerCatalog,
 };
+

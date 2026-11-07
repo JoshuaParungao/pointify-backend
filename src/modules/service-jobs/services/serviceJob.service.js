@@ -2906,63 +2906,7 @@ const updateServiceJobStatus = async (
   });
 };
 
-const DEFAULT_SERVICE_CATALOG = [
-  {
-    id: "sc-pms-general",
-    name: "Standard Preventive Maintenance & Cleaning",
-    deviceType: "GENERAL EQUIPMENT",
-    repairType: "ORDINARY_REPAIR",
-    basePrice: 500,
-    markupPercent: 0,
-    description: "Complete routine cleaning, inspection, lubrication, and standard operational testing.",
-    isQuickService: true,
-    isActive: true,
-  },
-  {
-    id: "sc-setup-config",
-    name: "System Setup, Calibration & Configuration",
-    deviceType: "GENERAL EQUIPMENT",
-    repairType: "ORDINARY_REPAIR",
-    basePrice: 450,
-    markupPercent: 0,
-    description: "Initial setup, calibration, configuration, and functional readiness check.",
-    isQuickService: true,
-    isActive: true,
-  },
-  {
-    id: "sc-part-install",
-    name: "Standard Part / Component Replacement Labor",
-    deviceType: "GENERAL EQUIPMENT",
-    repairType: "ORDINARY_REPAIR",
-    basePrice: 800,
-    markupPercent: 0,
-    description: "Disassembly, faulty module removal, replacement part installation, and safety verification.",
-    isQuickService: false,
-    isActive: true,
-  },
-  {
-    id: "sc-advanced-overhaul",
-    name: "Complex Internal Overhaul & Circuit Repair",
-    deviceType: "ELECTRONIC UNIT",
-    repairType: "BOARD_LEVEL_REPAIR",
-    basePrice: 2500,
-    markupPercent: 0,
-    description: "Advanced component-level troubleshooting, internal circuit repair, and full load testing.",
-    isQuickService: false,
-    isActive: true,
-  },
-  {
-    id: "sc-bench-diagnosis",
-    name: "Comprehensive Unit Inspection & Fault Diagnosis",
-    deviceType: "GENERAL EQUIPMENT",
-    repairType: "ORDINARY_REPAIR",
-    basePrice: 350,
-    markupPercent: 0,
-    description: "Complete diagnostic evaluation and fault isolation for customer units.",
-    isQuickService: true,
-    isActive: true,
-  },
-];
+const DEFAULT_SERVICE_CATALOG = [];
 
 const SERVICE_CATALOG_SCOPE_KEY = "GLOBAL:service.catalog";
 
@@ -3155,52 +3099,7 @@ const deleteServiceCatalogItem = async (id, actor) => {
   return { success: true, message: "Service catalog item deleted successfully" };
 };
 
-const DEFAULT_SERVICE_PARTS_CATALOG = [
-  {
-    id: "sp-std-module",
-    name: "Standard Replacement Assembly / Module",
-    deviceType: "GENERAL EQUIPMENT",
-    category: "REPLACEMENT PART",
-    costPrice: 1500,
-    markupAmount: 750,
-    description: "Standard OEM replacement module or assembly unit.",
-    repairType: "ORDINARY_REPAIR",
-    isActive: true,
-  },
-  {
-    id: "sp-maint-consumable",
-    name: "Maintenance Consumable & Cleaning Kit",
-    deviceType: "GENERAL EQUIPMENT",
-    category: "CONSUMABLE",
-    costPrice: 150,
-    markupAmount: 200,
-    description: "Service-grade maintenance consumable and cleaning materials.",
-    repairType: "ORDINARY_REPAIR",
-    isActive: true,
-  },
-  {
-    id: "sp-power-unit",
-    name: "Replacement Power Supply / Battery Pack",
-    deviceType: "ELECTRONIC UNIT",
-    category: "ELECTRICAL / POWER",
-    costPrice: 1200,
-    markupAmount: 800,
-    description: "Standard power adapter, internal battery pack, or regulator unit.",
-    repairType: "ORDINARY_REPAIR",
-    isActive: true,
-  },
-  {
-    id: "sp-precision-part",
-    name: "Specialized Internal Control Component",
-    deviceType: "ELECTRONIC UNIT",
-    category: "MODULE / ASSEMBLY",
-    costPrice: 450,
-    markupAmount: 850,
-    description: "Precision internal replacement part for advanced repairs.",
-    repairType: "BOARD_LEVEL_REPAIR",
-    isActive: true,
-  },
-];
+const DEFAULT_SERVICE_PARTS_CATALOG = [];
 
 const SERVICE_PARTS_CATALOG_SCOPE_KEY = "GLOBAL:service.parts.catalog";
 
