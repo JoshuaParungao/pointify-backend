@@ -109,9 +109,19 @@ const PURCHASE_RECEIVING_OPERATION_ROLES = new Set([
   "SUPER_OWNER",
   "BRANCH_OWNER",
   "ADMIN",
-  "CASHIER",
-  "TECHNICIAN",
 ]);
+
+const isActorSenior = (actor) => {
+  if (!actor) return false;
+  const classification = String(actor.incentiveClassification || "").toUpperCase();
+  const role = String(actor.role || "").toUpperCase();
+  return (
+    classification === "SENIOR_SALES_AGENT" ||
+    classification === "SENIOR_TECHNICIAN" ||
+    classification.startsWith("SENIOR_") ||
+    role.startsWith("SENIOR_")
+  );
+};
 
 const normalizeOptionalString = (value) => {
   if (value === undefined || value === null) {

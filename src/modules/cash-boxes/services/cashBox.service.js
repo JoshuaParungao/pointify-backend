@@ -3,7 +3,7 @@ const { createAuditLog } = require("../../../utils/auditLogger");
 
 const OWNER_ADMIN_ROLES = new Set(["SUPER_OWNER", "BRANCH_OWNER", "ADMIN"]);
 const CASH_CUSTODIAN_MANAGER_ROLES = new Set(["SUPER_OWNER", "BRANCH_OWNER", "ADMIN"]);
-const CASH_CUSTODIAN_ELIGIBLE_ROLES = new Set(["CASHIER", "TECHNICIAN"]);
+const CASH_CUSTODIAN_ELIGIBLE_ROLES = new Set(["CASHIER", "TECHNICIAN", "CASH_CUSTODIAN"]);
 
 const CASH_CUSTODIAN_ASSIGNMENT_INCLUDE = {
   branch: {
@@ -109,12 +109,12 @@ const hasActiveCashCustodianAssignment = async (
   actor,
   client = prisma
 ) => {
-  if (
-    !actor?.id ||
-    !actor?.branchId ||
-    !CASH_CUSTODIAN_ELIGIBLE_ROLES.has(actor.role)
-  ) {
+  if (!actor?.id || !actor?.branchId) {
     return false;
+  }
+
+  if (actor.role === "CASH_CUSTODIAN") {
+    return true;
   }
 
   const assignment =
