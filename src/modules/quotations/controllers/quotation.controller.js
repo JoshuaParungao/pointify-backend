@@ -19,6 +19,8 @@ const handleQuotationError = (error, res, next) => {
     QUOTATION_NOT_FOUND: [404, "Quotation not found."],
     QUOTATION_NOT_EDITABLE: [400, "Only draft quotations can be updated."],
     INVALID_QUOTATION_STATUS_TRANSITION: [400, "Invalid quotation status transition."],
+    EMPTY_PDF_TEXT: [400, "No readable text found in the uploaded PDF. Scanned image PDFs without a text layer cannot be extracted directly."],
+    ONLY_PDF_ALLOWED: [400, "Only PDF files are allowed for quotation OCR processing."],
   };
 
   if (knownErrors[error.message]) {
@@ -143,7 +145,8 @@ const parseQuotationPdf = async (req, res, next) => {
     const branchId = req.user?.branchId || req.query?.branchId;
     const result = await quotationOcrService.processQuotationPdfBuffer(
       req.file.buffer,
-      branchId
+      branchId,
+      req.file.originalname || ""
     );
 
     return res.status(200).json({
