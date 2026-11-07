@@ -41,21 +41,52 @@ const generateCashTransactionCode = async (tx, branchCode, branchId) => {
 };
 
 const getDefaultCashBox = async (tx, branch) => {
-  const candidate = await tx.cashBox.findFirst({
+  let candidate = await tx.cashBox.findFirst({
     where: {
       branchId: branch.id,
       boxCode: `CASHBOX-${branch.code}`,
-      status: "ACTIVE",
     },
     select: {
       id: true,
+      status: true,
     },
   });
 
   if (!candidate) {
-    const error = new Error("DEFAULT_CASH_BOX_NOT_FOUND");
-    error.statusCode = 400;
-    throw error;
+    const anyActive = await tx.cashBox.findFirst({
+      where: {
+        branchId: branch.id,
+        status: "ACTIVE",
+      },
+      select: {
+        id: true,
+        status: true,
+      },
+    });
+
+    if (anyActive) {
+      candidate = anyActive;
+    } else {
+      candidate = await tx.cashBox.create({
+        data: {
+          branchId: branch.id,
+          boxCode: `CASHBOX-${branch.code}`,
+          name: `${branch.name || "Branch"} Main Cash Register`,
+          status: "ACTIVE",
+          currentBalance: 0,
+          remarks: "Default Primary Cash Register",
+        },
+        select: {
+          id: true,
+          status: true,
+        },
+      });
+    }
+  } else if (candidate.status !== "ACTIVE") {
+    await tx.cashBox.update({
+      where: { id: candidate.id },
+      data: { status: "ACTIVE" },
+    });
   }
 
   await tx.$queryRaw`SELECT "id" FROM "CashBox" WHERE "id" = ${candidate.id} FOR UPDATE`;
