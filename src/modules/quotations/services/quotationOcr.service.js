@@ -735,6 +735,11 @@ async function matchWithDatabase(parsedData, branchId) {
         costPrice: true,
         isSerialized: true,
         hasWarranty: true,
+        description: true,
+        inventoryBatches: {
+          where: { status: "ACTIVE" },
+          select: { quantityAvailable: true },
+        },
       },
       take: 1000,
     });
@@ -773,17 +778,33 @@ async function matchWithDatabase(parsedData, branchId) {
     }
 
     if (bestMatch) {
+      const availableStock = (bestMatch.inventoryBatches || []).reduce(
+        (sum, b) => sum + Number(b.quantityAvailable || 0),
+        0
+      );
+      const hasWarranty = Boolean(bestMatch.hasWarranty);
+      let warrantyDuration = "NO WARRANTY";
+      if (hasWarranty) {
+        const descMatch = (bestMatch.description || "").match(/\[WARRANTY:\s*([^\]]+)\]/i);
+        warrantyDuration = descMatch?.[1] ? descMatch[1].trim() : (bestMatch.isSerialized ? "1 YEAR WARRANTY" : "7 DAYS REPLACEMENT");
+      }
+
       return {
         ...item,
         matchedItemId: bestMatch.id,
         matchedItemCode: bestMatch.itemCode,
         matchedItemName: bestMatch.itemName,
-        catalogPrice: Number(bestMatch.price1),
-        price1: Number(bestMatch.price1),
-        price2: Number(bestMatch.price2 || bestMatch.price1),
-        price3: Number(bestMatch.price3 || bestMatch.price1),
-        isSerialized: bestMatch.isSerialized,
-        hasWarranty: bestMatch.hasWarranty,
+        catalogPrice: Number(bestMatch.price1 || 0),
+        price1: Number(bestMatch.price1 || 0),
+        price2: Number(bestMatch.price2 || bestMatch.price1 || 0),
+        price3: Number(bestMatch.price3 || bestMatch.price1 || 0),
+        price4: Number(bestMatch.price4 || bestMatch.price1 || 0),
+        price5: Number(bestMatch.price5 || bestMatch.price1 || 0),
+        availableQuantity: availableStock,
+        availableStock,
+        isSerialized: Boolean(bestMatch.isSerialized),
+        hasWarranty,
+        warrantyDuration,
         matchConfidence: highestSim,
         isCatalogMatch: true,
       };
@@ -822,6 +843,13 @@ async function processQuotationPdfBuffer(pdfBuffer, branchId, originalFilename =
 
     const structured = extractQuotationDetails(rawText, originalFilename);
     const enriched = await matchWithDatabase(structured, branchId);
+
+    const isScannedImageOnly = rawText.trim().length < 20;
+    if (isScannedImageOnly) {
+      enriched.isScannedImageOnly = true;
+      enriched.scannedWarning =
+        "Scanned/Image-only document detected. No selectable text layer found in this PDF. Please upload a digital PDF with selectable text or manually enter quotation items.";
+    }
 
     return {
       success: true,

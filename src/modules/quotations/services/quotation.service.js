@@ -462,6 +462,8 @@ const createQuotation = async (actor, payload) => {
             id: true,
             code: true,
             name: true,
+            address: true,
+            contactNo: true,
           },
         },
         customer: {
@@ -471,6 +473,8 @@ const createQuotation = async (actor, payload) => {
             fullName: true,
             mobileNumber: true,
             email: true,
+            address: true,
+            companyName: true,
           },
         },
         preparedBy: {
@@ -635,6 +639,8 @@ const getQuotations = async (actor, query) => {
             id: true,
             code: true,
             name: true,
+            address: true,
+            contactNo: true,
           },
         },
         customer: {
@@ -644,6 +650,8 @@ const getQuotations = async (actor, query) => {
             fullName: true,
             mobileNumber: true,
             email: true,
+            address: true,
+            companyName: true,
           },
         },
         preparedBy: {
@@ -675,7 +683,10 @@ const getQuotations = async (actor, query) => {
   ]);
 
   return {
-    data: quotations.map((quotation) => hideInternalNotesIfNeeded(quotation, actor)),
+    data: quotations.map((quotation) => ({
+      ...hideInternalNotesIfNeeded(quotation, actor),
+      itemCount: quotation._count?.items ?? (quotation.items?.length || 0),
+    })),
     pagination: {
       page,
       limit,
@@ -695,11 +706,13 @@ const getQuotationById = async (actor, quotationId) => {
     },
     include: {
       branch: {
-        select: {
-          id: true,
-          code: true,
-          name: true,
-        },
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            address: true,
+            contactNo: true,
+          },
       },
       customer: {
         select: {
@@ -941,6 +954,8 @@ const updateQuotation = async (actor, quotationId, payload) => {
             id: true,
             code: true,
             name: true,
+            address: true,
+            contactNo: true,
           },
         },
         customer: {
@@ -950,6 +965,8 @@ const updateQuotation = async (actor, quotationId, payload) => {
             fullName: true,
             mobileNumber: true,
             email: true,
+            address: true,
+            companyName: true,
           },
         },
         preparedBy: {
@@ -1090,6 +1107,8 @@ const updateQuotationStatus = async (actor, quotationId, payload) => {
             id: true,
             code: true,
             name: true,
+            address: true,
+            contactNo: true,
           },
         },
         customer: {
@@ -1099,6 +1118,8 @@ const updateQuotationStatus = async (actor, quotationId, payload) => {
             fullName: true,
             mobileNumber: true,
             email: true,
+            address: true,
+            companyName: true,
           },
         },
         preparedBy: {
