@@ -24,6 +24,34 @@ const getHealthStatus = asyncHandler(async (req, res) => {
   });
 });
 
+const getCatalogStatus = asyncHandler(async (req, res) => {
+  const [itemCount, categoryCount, batchCount] = await Promise.all([
+    prisma.item.count(),
+    prisma.itemCategory.count(),
+    prisma.inventoryBatch.count(),
+  ]);
+
+  return sendSuccess(res, {
+    message: "Catalog status retrieved",
+    data: {
+      itemCount,
+      categoryCount,
+      batchCount,
+    },
+  });
+});
+
+const triggerCatalogImport = asyncHandler(async (req, res) => {
+  const { importPharmacyAndDeviceCatalog } = require("../../../utils/pharmacyCatalogImporter");
+  const result = await importPharmacyAndDeviceCatalog();
+  return sendSuccess(res, {
+    message: "Catalog import executed",
+    data: result,
+  });
+});
+
 module.exports = {
   getHealthStatus,
+  getCatalogStatus,
+  triggerCatalogImport,
 };

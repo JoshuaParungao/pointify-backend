@@ -5,6 +5,7 @@ const prisma = require("./config/prisma");
 const { initBackupScheduler } = require("./modules/backup/services/backupScheduler.service");
 const { ensureDefaultSettings } = require("./modules/settings/services/setting.service");
 const { cleanupLegacyComputerCatalog } = require("./utils/catalogPurge");
+const { importPharmacyAndDeviceCatalog } = require("./utils/pharmacyCatalogImporter");
 const bcrypt = require("bcryptjs");
 
 const ensureSchemaMigrations = async () => {
@@ -149,6 +150,9 @@ const server = app.listen(env.port, () => {
   ensureDeveloperAccount();
   ensureDefaultBranches();
   cleanupLegacyComputerCatalog();
+  importPharmacyAndDeviceCatalog().catch((err) => {
+    logger.warn("Pharmacy and device catalog import warning", { error: err?.message });
+  });
   ensureDefaultSettings().catch((err) => {
     logger.warn("Initial settings sync warning", { error: err.message });
   });
