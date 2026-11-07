@@ -375,14 +375,14 @@ const TAXONOMY_STRUCTURE = [
 ];
 
 const STANDARD_UNITS = [
-  { code: "PCS", name: "Piece", description: "Individual single item" },
-  { code: "BOX", name: "Box", description: "Packaged box of pieces" },
-  { code: "UNIT", name: "Unit", description: "Single equipment unit" },
-  { code: "SET", name: "Set", description: "Complete package or assembly" },
-  { code: "PAIR", name: "Pair", description: "Pair of two matching items" },
-  { code: "BOTTLE", name: "Bottle", description: "Liquid or tablet bottle" },
-  { code: "TUBE", name: "Tube", description: "Ointment or cream tube" },
-  { code: "VIAL", name: "Vial", description: "Injectable liquid vial" },
+  { unitCode: "PCS", name: "Piece", description: "Individual single item" },
+  { unitCode: "BOX", name: "Box", description: "Packaged box of pieces" },
+  { unitCode: "UNIT", name: "Unit", description: "Single equipment unit" },
+  { unitCode: "SET", name: "Set", description: "Complete package or assembly" },
+  { unitCode: "PAIR", name: "Pair", description: "Pair of two matching items" },
+  { unitCode: "BOTTLE", name: "Bottle", description: "Liquid or tablet bottle" },
+  { unitCode: "TUBE", name: "Tube", description: "Ointment or cream tube" },
+  { unitCode: "VIAL", name: "Vial", description: "Injectable liquid vial" },
 ];
 
 async function importPharmacyAndDeviceCatalog() {
@@ -393,6 +393,28 @@ async function importPharmacyAndDeviceCatalog() {
     logger.warn("[CatalogImporter] No active branches found. Skipping catalog import.");
     return { success: false, reason: "NO_ACTIVE_BRANCHES" };
   }
+
+  // Ensure Standard Global Units
+  const unitMap = new Map();
+  for (const u of STANDARD_UNITS) {
+    let existing = await prisma.unit.findFirst({
+      where: {
+        OR: [{ unitCode: u.unitCode }, { name: u.name }],
+      },
+    });
+    if (!existing) {
+      existing = await prisma.unit.create({
+        data: {
+          unitCode: u.unitCode,
+          name: u.name,
+          description: u.description,
+          status: "ACTIVE",
+        },
+      });
+    }
+    unitMap.set(u.unitCode, existing);
+  }
+  const defaultUnit = unitMap.get("PCS") || unitMap.get("UNIT");
 
   // Load pharmacy catalog JSON
   const jsonPath = path.join(__dirname, "../data/pharmacyCatalogData.json");
@@ -415,27 +437,7 @@ async function importPharmacyAndDeviceCatalog() {
   for (const branch of branches) {
     logger.info(`[CatalogImporter] Processing catalog for branch: ${branch.name} (${branch.code})...`);
 
-    // 1. Ensure Standard Units
-    const unitMap = new Map();
-    for (const u of STANDARD_UNITS) {
-      let existing = await prisma.unit.findFirst({
-        where: { branchId: branch.id, code: u.code },
-      });
-      if (!existing) {
-        existing = await prisma.unit.create({
-          data: {
-            branchId: branch.id,
-            code: u.code,
-            name: u.name,
-            description: u.description,
-          },
-        });
-      }
-      unitMap.set(u.code, existing);
-    }
-    const defaultUnit = unitMap.get("PCS") || unitMap.get("UNIT");
-
-    // 2. Ensure Categories and Subcategories
+    // Ensure Categories and Subcategories per branch
     const categoryMap = new Map();
     for (const parentCat of TAXONOMY_STRUCTURE) {
       let parentRecord = await prisma.itemCategory.findFirst({
@@ -475,7 +477,7 @@ async function importPharmacyAndDeviceCatalog() {
       }
     }
 
-    // 3. Import / Upsert Medical Devices (26 Items)
+    // Import / Upsert Medical Devices (26 Items)
     logger.info(`[CatalogImporter] Upserting 26 Medical Devices for branch ${branch.code}...`);
     for (const dev of MEDICAL_DEVICES) {
       const targetSubCat = categoryMap.get(dev.subCategoryCode);
@@ -531,7 +533,7 @@ async function importPharmacyAndDeviceCatalog() {
       }
     }
 
-    // 4. Import / Upsert Pharmacy Products (1,110 Items)
+    // Import / Upsert Pharmacy Products (1,110 Items)
     if (pharmacyProducts.length > 0) {
       logger.info(`[CatalogImporter] Upserting ${pharmacyProducts.length} pharmacy products for branch ${branch.code}...`);
 
