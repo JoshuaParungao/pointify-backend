@@ -22,7 +22,11 @@ const createCheckoutSession = async (req, res, next) => {
       metadata,
     } = req.body;
 
-    if (!amount || Number(amount) <= 0) {
+    const numericAmount = typeof amount === "number"
+      ? amount
+      : parseFloat(String(amount || "").replace(/[^0-9.]/g, "")) || 0;
+
+    if (numericAmount <= 0) {
       return res.status(400).json({
         success: false,
         message: "A valid transaction amount is required.",
@@ -30,7 +34,7 @@ const createCheckoutSession = async (req, res, next) => {
     }
 
     const session = await paymongoService.createCheckoutSession({
-      amount: Number(amount),
+      amount: numericAmount,
       description: description || `Pointify Order ${referenceNumber || ""}`,
       referenceNumber,
       customerName,

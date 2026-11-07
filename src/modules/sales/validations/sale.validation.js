@@ -79,6 +79,7 @@ const salePaymentSchema = z.object({
     "DEBIT_CARD",
     "PAYMAYA",
     "MAYA",
+    "PAYMONGO",
     "OTHER",
   ]),
   amount: positiveNumber,

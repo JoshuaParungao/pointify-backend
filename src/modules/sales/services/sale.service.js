@@ -1221,6 +1221,8 @@ const buildSalePayments = (actor, payments = []) => {
       normalizedMethod = "CARD";
     } else if (normalizedMethod === "PAYMAYA" || normalizedMethod === "MAYA") {
       normalizedMethod = "GCASH";
+    } else if (normalizedMethod === "PAYMONGO") {
+      normalizedMethod = "GCASH";
     }
 
     return {
