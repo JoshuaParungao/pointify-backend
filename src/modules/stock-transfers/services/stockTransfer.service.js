@@ -4251,7 +4251,7 @@ const returnBorrowTransfer = async (stockTransferId, payload, actor) => {
     auditDesc = `Borrowed stock transfer ${existingTransfer.transferCode} confirmed returned / received (${condition})${remarks ? ": " + remarks : ""}`;
   } else if (actionType === "INITIATE_PURCHASE") {
     // Borrower requests conversion to purchase
-    statusTag = `[BORROW_STATUS:WAITING_AMOUNT] Babayaran nalang requested by ${actorName} on ${dateStr}. Awaiting billing amount from source branch.${remarks ? " - " + remarks : ""}`.trim();
+    statusTag = `[BORROW_STATUS:WAITING_AMOUNT] Outright purchase requested by ${actorName} on ${dateStr}. Awaiting billing amount from source branch.${remarks ? " - " + remarks : ""}`.trim();
     auditAction = "STOCK_TRANSFER_BORROW_PURCHASE_REQUESTED";
     auditDesc = `Borrowed stock transfer ${existingTransfer.transferCode} marked to be paid/purchased; awaiting billing from source branch`;
   } else if (actionType === "SET_BILLING_AMOUNT") {
@@ -4274,7 +4274,7 @@ const returnBorrowTransfer = async (stockTransferId, payload, actor) => {
     // Lender confirms payment received -> COMPLETED / PURCHASED
     const amtTag = amount ? ` [PAID_AMOUNT:${amount}]` : "";
     const methodTag = paymentMethod ? ` [PAID_METHOD:${paymentMethod}]` : "";
-    statusTag = `[BORROW_STATUS:PURCHASED] Babayaran nalang - Payment received and confirmed by ${actorName} on ${dateStr}.${amtTag}${methodTag}${remarks ? " - " + remarks : ""}`.trim();
+    statusTag = `[BORROW_STATUS:PURCHASED] Outright purchase payment received and confirmed by ${actorName} on ${dateStr}.${amtTag}${methodTag}${remarks ? " - " + remarks : ""}`.trim();
     auditAction = "STOCK_TRANSFER_BORROW_PURCHASED";
     auditDesc = `Payment confirmed for borrowed stock transfer ${existingTransfer.transferCode} (Converted to Purchase & Settled)`;
   }
