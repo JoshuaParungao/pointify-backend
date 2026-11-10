@@ -80,8 +80,9 @@ async function createCheckoutSession({
           success_url: successUrl || undefined,
           cancel_url: cancelUrl || undefined,
           metadata: {
-            referenceNumber: referenceNumber || undefined,
-            ...metadata,
+            source: "pointify_pos",
+            ...(referenceNumber ? { referenceNumber: String(referenceNumber) } : {}),
+            ...(metadata && typeof metadata === "object" ? metadata : {}),
           },
         },
       },
