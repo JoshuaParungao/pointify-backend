@@ -54,7 +54,7 @@ const createCheckoutSession = async (req, res, next) => {
     const mockSessionId = `cs_demo_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const mockSession = {
       sessionId: mockSessionId,
-      checkoutUrl: `https://test-sources.paymongo.com/sources?id=${mockSessionId}`,
+      checkoutUrl: null,
       clientKey: `${mockSessionId}_client_key`,
       status: "active",
       amount: Number(req.body?.amount || 0),
