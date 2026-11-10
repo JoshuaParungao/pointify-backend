@@ -10,3 +10,29 @@ coverage
 *.backup*
 inspection-*
 /src/generated/prisma
+
+# AI Agent Workspaces & Documentation (kept locally, ignored by remote repository)
+.agents/
+.claude/
+.windsurf/
+skills-lock.json
+POINTIFY_CONTEXT.md
+
+# Scratch test scripts and inspection dumps (kept locally, ignored by remote repository)
+*.txt
+*.ps1
+*.bak
+codex-*
+phase*
+check*
+debug-*
+patch-*
+inspect-*
+create-*
+fix-*
+client-ready-*
+enterprise-*
+addPhase5ItemModels.js
+seedInventoryInitialStock.js
+inventory-stock-transfer-client-ready-test.js
+quotation-backend-inspection.txt
