@@ -1331,7 +1331,34 @@ const createSale = async (actor, payload, database = prisma) => {
       ? buildQuotationConversionPayload(quotation, payload)
       : payload;
 
-    await ensureCustomerBelongsToBranch(tx, salePayload.customerId, branchId);
+    let targetCustomerId = salePayload.customerId;
+    if (!targetCustomerId && salePayload.customerName) {
+      const cleanName = salePayload.customerName.trim();
+      if (cleanName.toLowerCase() !== "walk-in" && cleanName.toLowerCase() !== "walk-in customer") {
+        let existingCust = await tx.customer.findFirst({
+          where: {
+            branchId,
+            fullName: { equals: cleanName, mode: "insensitive" },
+          },
+        });
+        if (!existingCust) {
+          existingCust = await tx.customer.create({
+            data: {
+              branchId,
+              fullName: cleanName,
+              address: salePayload.customerAddress?.trim() || null,
+              mobileNumber: salePayload.customerPhone?.trim() || null,
+              email: salePayload.customerEmail?.trim() || null,
+              companyName: salePayload.customerCompany?.trim() || null,
+              status: "ACTIVE",
+            },
+          });
+        }
+        targetCustomerId = existingCust.id;
+      }
+    }
+
+    await ensureCustomerBelongsToBranch(tx, targetCustomerId, branchId);
 
     const { saleItems, stockDeductions, subtotal, totalDiscount } = await buildSaleItems(
       tx,
@@ -1560,7 +1587,7 @@ const createSale = async (actor, payload, database = prisma) => {
         idempotencyFingerprint,
         remarks: salePayload.remarks || null,
         branchId,
-        customerId: salePayload.customerId || null,
+        customerId: targetCustomerId || null,
         quotationId: salePayload.quotationId || null,
         cashierId: assignedCashierId,
         createdById: actor.id,
