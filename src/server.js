@@ -32,6 +32,37 @@ const ensureSchemaMigrations = async () => {
   logger.info("Database schema self-check completed");
 };
 
+const ensureDefaultBranches = async () => {
+  try {
+    const branches = await prisma.branch.findMany();
+    for (const b of branches) {
+      const code = String(b.code || b.name || "").toUpperCase();
+      if (code.includes("MAIN") || code.includes("SAN FERNANDO")) {
+        await prisma.branch.update({
+          where: { id: b.id },
+          data: {
+            name: "Branch 1",
+            address: "Branch 1 Commercial Center, Main District",
+            contactNo: "0961-000-0001",
+          },
+        });
+      } else if (code.includes("MAB") || code.includes("DAU")) {
+        await prisma.branch.update({
+          where: { id: b.id },
+          data: {
+            name: "Branch 2",
+            address: "Branch 2 Commercial Center, City District",
+            contactNo: "0961-000-0002",
+          },
+        });
+      }
+    }
+    logger.info("Default branches verified as Branch 1 & Branch 2");
+  } catch (err) {
+    logger.warn("Default branches sync warning", { error: err.message });
+  }
+};
+
 const ensureDeveloperAccount = async () => {
   try {
     const existingSuperOwner = await prisma.user.findFirst({
@@ -102,6 +133,7 @@ const server = app.listen(env.port, () => {
   initBackupScheduler();
   ensureSchemaMigrations();
   ensureDeveloperAccount();
+  ensureDefaultBranches();
   ensureDefaultSettings().catch((err) => {
     logger.warn("Initial settings sync warning", { error: err.message });
   });

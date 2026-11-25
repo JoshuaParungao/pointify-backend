@@ -8,14 +8,14 @@ const BRANCH_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 const BRANCH_DEFAULTS = {
   MAIN: {
-    address:
-      "Kingspire Business Centre, Km. 71 Mac Arthur Highway, San Isidro, City of San Fernando, Pampanga, Philippines, 2000",
-    contactNo: "0961-873-5798 / 045-404-0673",
+    name: "Branch 1",
+    address: "Branch 1 Commercial Center, Main District",
+    contactNo: "0961-000-0001",
   },
   MAB: {
-    address:
-      "ODT Bldg, Mac Arthur Highway, Lakandula, Mabalacat, Pampanga, Philippines, 2010",
-    contactNo: "+63 991 010 5840 / (045) 649-9669",
+    name: "Branch 2",
+    address: "Branch 2 Commercial Center, City District",
+    contactNo: "0961-000-0002",
   },
 };
 
