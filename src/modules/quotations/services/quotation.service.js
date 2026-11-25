@@ -418,7 +418,32 @@ const createQuotation = async (actor, payload) => {
 
   return prisma.$transaction(async (tx) => {
     const branch = await ensureBranchExists(tx, branchId);
-    await ensureCustomerBelongsToBranch(tx, payload.customerId, branchId);
+    let targetCustomerId = payload.customerId;
+    if (targetCustomerId && (String(targetCustomerId).startsWith("offline-") || String(targetCustomerId).startsWith("CUST-"))) {
+      targetCustomerId = null;
+    }
+    if (!targetCustomerId && payload.customerName) {
+      const cleanName = payload.customerName.trim();
+      if (cleanName.toLowerCase() !== "walk-in" && cleanName.toLowerCase() !== "walk-in customer") {
+        let existingCust = await tx.customer.findFirst({
+          where: { branchId, fullName: { equals: cleanName, mode: "insensitive" } },
+        });
+        if (!existingCust) {
+          existingCust = await tx.customer.create({
+            data: {
+              branchId,
+              fullName: cleanName,
+              address: payload.customerAddress?.trim() || null,
+              mobileNumber: payload.customerPhone?.trim() || null,
+              email: payload.customerEmail?.trim() || null,
+              status: "ACTIVE",
+            },
+          });
+        }
+        targetCustomerId = existingCust.id;
+      }
+    }
+    await ensureCustomerBelongsToBranch(tx, targetCustomerId, branchId);
 
     const preparedById = actor.id;
     await ensurePreparedByBelongsToBranch(tx, preparedById, branchId);
@@ -452,7 +477,7 @@ const createQuotation = async (actor, payload) => {
         isPcBuild: Boolean(payload.isPcBuild),
         validUntil: payload.validUntil ? new Date(payload.validUntil) : null,
         branchId,
-        customerId: payload.customerId || null,
+        customerId: targetCustomerId || null,
         preparedById,
         serviceDoneById: requestedServiceDoneById || null,
         createdById: actor.id,

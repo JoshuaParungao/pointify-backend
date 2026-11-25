@@ -45,6 +45,11 @@ const createQuotationSchema = z.object({
   body: z.object({
     branchId: z.string().trim().min(1).optional(),
     customerId: z.string().trim().min(1).optional(),
+    customerName: optionalString,
+    customerAddress: optionalString,
+    customerPhone: optionalString,
+    customerEmail: optionalString,
+    customerCompany: optionalString,
     serviceDoneById: optionalNullableId,
     quotationDate: z.string().trim().min(1).optional().nullable().or(z.literal("")),
     title: optionalString,

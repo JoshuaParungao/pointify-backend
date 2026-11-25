@@ -1332,6 +1332,9 @@ const createSale = async (actor, payload, database = prisma) => {
       : payload;
 
     let targetCustomerId = salePayload.customerId;
+    if (targetCustomerId && (String(targetCustomerId).startsWith("offline-") || String(targetCustomerId).startsWith("CUST-"))) {
+      targetCustomerId = null;
+    }
     if (!targetCustomerId && salePayload.customerName) {
       const cleanName = salePayload.customerName.trim();
       if (cleanName.toLowerCase() !== "walk-in" && cleanName.toLowerCase() !== "walk-in customer") {
