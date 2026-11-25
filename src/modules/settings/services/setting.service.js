@@ -1,7 +1,9 @@
+const bcrypt = require("bcryptjs");
 const prisma = require("../../../config/prisma");
 const cache = require("../../../config/cache");
 const AppError = require("../../../utils/appError");
 const { createAuditLog } = require("../../../utils/auditLogger");
+const initialServiceCatalog = require("../../../data/initialServiceCatalog.json");
 
 const SETTINGS_CACHE_TTL = 2 * 60 * 1000;
 
@@ -208,7 +210,7 @@ const DEFAULT_SETTINGS_LIST = [
     key: "receipt.business_name",
     category: "DOCUMENT",
     valueType: "STRING",
-    value: "Pointify",
+    value: "POSynctify",
     label: "Receipt Business Name",
     description: "Default business name shown on receipts and printable documents.",
   },
@@ -600,6 +602,14 @@ const updateSettingByScopeKey = async (scopeKey, payload, actor = null) => {
 
   if (scopeKey === INCENTIVE_RULE_SCOPE_KEY && payload.value !== undefined) {
     const rules = payload.value;
+    if (rules && typeof rules === "object" && !Array.isArray(rules)) {
+      if (rules.defaultSoloSaleIncentivePercent === undefined) {
+        rules.defaultSoloSaleIncentivePercent = 1;
+      }
+      if (rules.defaultPcBuildTechIncentivePercent === undefined) {
+        rules.defaultPcBuildTechIncentivePercent = 2;
+      }
+    }
     const requiredBooleanFields = [
       "enableItemIncentives",
       "enableServiceIncentives",
@@ -1192,10 +1202,34 @@ const computeCashBoxStatusTest = async ({
   };
 };
 
-const resetTransactionalData = async (actor) => {
-  if (actor.role !== "SUPER_OWNER" && actor.role !== "ADMIN") {
+const resetTransactionalData = async (actor, password) => {
+  if (actor.role !== "SUPER_OWNER") {
     const error = new Error("UNAUTHORIZED_RESET");
     error.statusCode = 403;
+    throw error;
+  }
+
+  if (!password) {
+    const error = new Error("PASSWORD_REQUIRED");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const userWithPassword = await prisma.user.findUnique({
+    where: { id: actor.id },
+    select: { id: true, passwordHash: true },
+  });
+
+  if (!userWithPassword || !userWithPassword.passwordHash) {
+    const error = new Error("INVALID_CREDENTIALS");
+    error.statusCode = 401;
+    throw error;
+  }
+
+  const isPasswordValid = await bcrypt.compare(password, userWithPassword.passwordHash);
+  if (!isPasswordValid) {
+    const error = new Error("INVALID_PASSWORD");
+    error.statusCode = 401;
     throw error;
   }
 
@@ -1211,6 +1245,10 @@ const resetTransactionalData = async (actor) => {
         await tx.incentiveItemBasisSnapshot.deleteMany({});
         await tx.incentiveItemCycleRevision.deleteMany({});
         await tx.incentiveCycle.deleteMany({});
+
+        currentStep = "SUPPLIER_RETURNS";
+        await tx.supplierReturnItem.deleteMany({});
+        await tx.supplierReturn.deleteMany({});
 
         currentStep = "WARRANTY";
         await tx.warrantyClaim.deleteMany({});
@@ -1303,14 +1341,14 @@ const resetTransactionalData = async (actor) => {
             key: "service.catalog",
             category: "OPERATION",
             valueType: "JSON",
-            value: [],
+            value: initialServiceCatalog,
             label: "Service & Repair Rates Catalog",
             description: "Predefined list of standard service rates, repair classifications, and pricing.",
             isEditable: true,
             isActive: true,
           },
           update: {
-            value: [],
+            value: initialServiceCatalog,
           },
         });
         await tx.businessSetting.upsert({
@@ -1342,7 +1380,7 @@ const resetTransactionalData = async (actor) => {
         const deletedUsers = await tx.user.deleteMany({
           where: {
             username: {
-              notIn: ["superowner", "calix"],
+              notIn: ["superowner", "calix", "calixdave", "calixdaven"],
             },
             role: {
               not: "SUPER_OWNER",
@@ -1351,7 +1389,7 @@ const resetTransactionalData = async (actor) => {
         });
 
         return {
-          message: "Data reset successfully. Only Super Owner and Developer accounts and branch structures are preserved.",
+          message: "Operational transactions reset successfully. Only Super Owner accounts, branch structures, and system configurations are preserved.",
           deletedUsersCount: deletedUsers.count,
         };
       },
@@ -1365,6 +1403,42 @@ const resetTransactionalData = async (actor) => {
   }
 };
 
+const getPaymentMethodSettings = async () => {
+  const setting = await prisma.businessSetting.findUnique({
+    where: { scopeKey: "GLOBAL:payment.methods" },
+  });
+
+  const defaultValue = {
+    cash: true,
+    gcash: true,
+    bankTransfer: true,
+    cardTerminal: true,
+    cheque: true,
+    creditInstallment: true,
+    mixedPayment: true,
+    requiredFields: {
+      referenceNumber: true,
+      cardApprovalCode: true,
+      chequeNumber: true,
+      bankName: true,
+      remarks: false,
+    },
+  };
+
+  if (!setting || !setting.value || typeof setting.value !== "object") {
+    return defaultValue;
+  }
+
+  return {
+    ...defaultValue,
+    ...setting.value,
+    requiredFields: {
+      ...defaultValue.requiredFields,
+      ...(setting.value.requiredFields || {}),
+    },
+  };
+};
+
 module.exports = {
   listSettings,
   getSettingByScopeKey,
@@ -1374,6 +1448,7 @@ module.exports = {
   computeQuotationTest,
   getInstallmentBasisSettings,
   computeInstallmentTest,
+  getPaymentMethodSettings,
   getWarrantyRuleSettings,
   computeWarrantyTest,
   getCashBoxRuleSettings,

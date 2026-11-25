@@ -11,6 +11,7 @@ const receivableProviderValues = [
   "KYRO",
   "OTHER_FINANCING",
   "IN_HOUSE_INSTALLMENT",
+  "CHEQUE",
 ];
 
 const installmentTermValues = [
@@ -28,6 +29,8 @@ const collectionPaymentMethodValues = [
   "CASH",
   "GCASH",
   "BANK_TRANSFER",
+  "CARD",
+  "CHEQUE",
   "OTHER",
 ];
 
@@ -68,7 +71,7 @@ const createCreditCollectionSchema = z.object({
     paymentMethod: z.enum(collectionPaymentMethodValues).default("CASH"),
     referenceNo: optionalString,
     remarks: optionalString,
-    paidAt: z.string().trim().min(1).optional(),
+    paidAt: z.string().trim().min(1).optional().nullable().or(z.literal("")),
     idempotencyKey: z.string().uuid().optional(),
   }),
 });

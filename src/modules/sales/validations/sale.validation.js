@@ -48,6 +48,7 @@ const receivableProviderValues = [
   "KYRO",
   "OTHER_FINANCING",
   "IN_HOUSE_INSTALLMENT",
+  "CHEQUE",
 ];
 
 const saleItemSchema = z.object({
@@ -81,6 +82,7 @@ const salePaymentSchema = z.object({
     "MAYA",
     "PAYMONGO",
     "OTHER",
+    "CHEQUE",
   ]),
   amount: positiveNumber,
   referenceNo: optionalString,
@@ -114,8 +116,13 @@ const createSaleSchema = z.object({
       branchId: optionalNullableId,
       cashierId: optionalNullableId,
       idempotencyKey: z.string().trim().min(1).max(128).optional().or(z.literal("")),
+      clientSaleId: z.string().trim().min(1).max(128).optional().or(z.literal("")),
+      offlineReceiptCode: z.string().trim().min(1).max(128).optional().or(z.literal("")),
+      offlineCreatedAt: z.string().trim().min(1).optional().nullable().or(z.literal("")),
       customerId: optionalNullableId,
       quotationId: optionalNullableId,
+      saleDate: z.string().trim().min(1).optional().nullable().or(z.literal("")),
+      transactionDate: z.string().trim().min(1).optional().nullable().or(z.literal("")),
       serviceCharge: nonNegativeNumber.optional().default(0),
       remarks: optionalString,
       items: z.array(saleItemSchema).min(1, "At least one sale item is required"),
@@ -132,6 +139,7 @@ const createSaleSchema = z.object({
       }
     }),
 });
+
 
 const cancelSaleSchema = z.object({
   params: z.object({
@@ -171,6 +179,8 @@ const createSaleReturnSchema = z.object({
   body: z
     .object({
       reason: z.string().trim().min(1, "Return reason is required"),
+      requestedAt: z.string().trim().min(1).optional().nullable().or(z.literal("")),
+      transactionDate: z.string().trim().min(1).optional().nullable().or(z.literal("")),
       notes: optionalString,
       internalNotes: optionalString,
       refundMethod: z.enum([
@@ -243,6 +253,17 @@ const appendSaleItemsSchema = z.object({
   }),
 });
 
+const swapSaleSerialSchema = z.object({
+  params: z.object({
+    id: z.string().trim().min(1, "Sale ID is required"),
+  }),
+  body: z.object({
+    saleItemId: z.string().trim().min(1, "Sale item ID is required"),
+    newSerialNumber: z.string().trim().min(1, "New serial number is required"),
+    reason: optionalString,
+  }),
+});
+
 module.exports = {
   createSaleSchema,
   cancelSaleSchema,
@@ -251,4 +272,5 @@ module.exports = {
   listSalesSchema,
   saleIdParamSchema,
   appendSaleItemsSchema,
+  swapSaleSerialSchema,
 };

@@ -2,6 +2,7 @@ const prisma = require("../../../config/prisma");
 const AppError = require("../../../utils/appError");
 const { Prisma } = require("@prisma/client");
 const { createAuditLog } = require("../../../utils/auditLogger");
+const { parseTransactionDate } = require("../../../utils/businessDate");
 
 const STOCK_TRANSFER_INCLUDE = {
   fromBranch: {
@@ -865,35 +866,6 @@ const validateAndBuildRequestItems = async (items, fromBranchId, actor) => {
       );
     }
 
-
-    if (item.isSerialized) {
-      const availableSerialCount = await prisma.itemSerial.count({
-        where: {
-          branchId: fromBranchId,
-          itemId: item.id,
-          status: "AVAILABLE",
-          batchId: {
-            not: null,
-          },
-          batch: {
-            is: {
-              branchId: fromBranchId,
-              itemId: item.id,
-              status: "ACTIVE",
-            },
-          },
-        },
-      });
-
-      if (cumulativeQuantity > availableSerialCount) {
-        throw new AppError(
-          "Total requested quantity is higher than available serialized stock",
-          400,
-          "INSUFFICIENT_AVAILABLE_SERIALS"
-        );
-      }
-    }
-
     requestedQuantityByItem.set(item.id, cumulativeQuantity);
 
     const cleanDescription = normalizeOptionalString(itemPayload.description);
@@ -938,45 +910,30 @@ const listRequestableStock = async (filters = {}, actor) => {
   }
 
   const page = Number.parseInt(filters.page || "1", 10);
-  const limit = Math.min(Number.parseInt(filters.limit || "20", 10), 100);
+  const limit = Math.min(Number.parseInt(filters.limit || "100", 10), 500);
   const skip = (page - 1) * limit;
   const search = normalizeOptionalString(filters.search);
+  const searchTokens = search ? search.split(/\s+/).filter(Boolean) : [];
   const where = {
     branchId: sourceBranch.id,
     status: "ACTIVE",
-    AND: [
-      {
-        inventoryBatches: {
-          some: {
-            status: "ACTIVE",
-            quantityAvailable: { gt: 0 },
-          },
-        },
+    inventoryBatches: {
+      some: {
+        status: "ACTIVE",
+        quantityAvailable: { gt: 0 },
       },
-      {
-        OR: [
-          { isSerialized: false },
-          {
-            isSerialized: true,
-            itemSerials: {
-              some: {
-                status: "AVAILABLE",
-                batchId: { not: null },
-                batch: { is: { status: "ACTIVE", quantityAvailable: { gt: 0 } } },
-              },
-            },
-          },
-        ],
-      },
-    ],
-    ...(search
+    },
+    ...(searchTokens.length > 0
       ? {
-          OR: [
-            { itemCode: { contains: search, mode: "insensitive" } },
-            { itemName: { contains: search, mode: "insensitive" } },
-            { brand: { contains: search, mode: "insensitive" } },
-            { modelName: { contains: search, mode: "insensitive" } },
-          ],
+          AND: searchTokens.map((token) => ({
+            OR: [
+              { itemCode: { contains: token, mode: "insensitive" } },
+              { itemName: { contains: token, mode: "insensitive" } },
+              { description: { contains: token, mode: "insensitive" } },
+              { category: { is: { name: { contains: token, mode: "insensitive" } } } },
+              { category: { is: { parent: { is: { name: { contains: token, mode: "insensitive" } } } } } },
+            ],
+          })),
         }
       : {}),
   };
@@ -985,18 +942,22 @@ const listRequestableStock = async (filters = {}, actor) => {
     prisma.item.count({ where }),
     prisma.item.findMany({
       where,
-      orderBy: { itemCode: "asc" },
+      orderBy: [{ itemName: "asc" }, { itemCode: "asc" }],
       skip,
       take: limit,
       select: {
         id: true,
         itemCode: true,
         itemName: true,
-        brand: true,
-        modelName: true,
         isSerialized: true,
         branch: { select: { id: true, code: true, name: true } },
-        category: { select: { id: true, name: true } },
+        category: {
+          select: {
+            id: true,
+            name: true,
+            parent: { select: { id: true, name: true } },
+          },
+        },
         unit: { select: { id: true, name: true } },
         inventoryBatches: {
           where: { status: "ACTIVE", quantityAvailable: { gt: 0 } },
@@ -1014,22 +975,22 @@ const listRequestableStock = async (filters = {}, actor) => {
     }),
   ]);
 
-  const data = items.map((item) => {
-    const batchQuantity = item.inventoryBatches.reduce(
-      (sum, batch) => sum + Number(batch.quantityAvailable || 0),
-      0
-    );
-    const quantityAvailable = item.isSerialized
-      ? Math.min(batchQuantity, item.itemSerials.length)
-      : batchQuantity;
-    const { inventoryBatches, itemSerials, ...safeItem } = item;
+  const data = items
+    .map((item) => {
+      const batchQuantity = item.inventoryBatches.reduce(
+        (sum, batch) => sum + Number(batch.quantityAvailable || 0),
+        0
+      );
+      const quantityAvailable = batchQuantity;
+      const { inventoryBatches, itemSerials, ...safeItem } = item;
 
-    return {
-      ...safeItem,
-      quantityAvailable,
-      availableSerialCount: item.isSerialized ? itemSerials.length : null,
-    };
-  });
+      return {
+        ...safeItem,
+        quantityAvailable,
+        availableSerialCount: item.isSerialized ? itemSerials.length : null,
+      };
+    })
+    .filter((item) => Number(item.quantityAvailable || 0) > 0);
 
   return {
     data,
@@ -1127,11 +1088,17 @@ const createStockTransferRequest = async (payload, actor) => {
     actor
   );
 
+  const effectiveDate = parseTransactionDate(
+    payload.transferDate || payload.transactionDate,
+    new Date()
+  );
+
   return prisma.$transaction(async (tx) => {
     const stockTransfer = await tx.stockTransfer.create({
       data: {
         transferCode,
         status: "REQUESTED",
+        transferDate: effectiveDate,
 
         fulfillmentMethod,
         fulfillmentStatus: "PENDING",
@@ -1142,7 +1109,7 @@ const createStockTransferRequest = async (payload, actor) => {
         fromBranchId: fromBranch.id,
         toBranchId: toBranch.id,
 
-        requestedAt: new Date(),
+        requestedAt: effectiveDate,
         requestedById: actor.id,
 
         createdById: actor.id,
@@ -1199,11 +1166,17 @@ const createStockTransfer = async (payload, actor) => {
 
   const items = await validateAndBuildItems(payload.items, fromBranch.id, actor);
 
+  const effectiveDate = parseTransactionDate(
+    payload.transferDate || payload.transactionDate,
+    new Date()
+  );
+
   return prisma.$transaction(async (tx) => {
     const stockTransfer = await tx.stockTransfer.create({
       data: {
         transferCode,
         status: "DRAFT",
+        transferDate: effectiveDate,
         notes: normalizeOptionalString(payload.notes),
         internalNotes: normalizeOptionalString(payload.internalNotes),
         fromBranchId: fromBranch.id,
@@ -1487,6 +1460,13 @@ const updateStockTransferById = async (stockTransferId, payload, actor) => {
 
   if (payload.internalNotes !== undefined) {
     updateData.internalNotes = normalizeOptionalString(payload.internalNotes);
+  }
+
+  if (payload.transferDate !== undefined || payload.transactionDate !== undefined) {
+    updateData.transferDate = parseTransactionDate(
+      payload.transferDate || payload.transactionDate,
+      existingTransfer.transferDate
+    );
   }
 
   if (payload.items !== undefined) {
@@ -4241,26 +4221,29 @@ const returnBorrowTransfer = async (stockTransferId, payload, actor) => {
     const condPart = ` [RETURN_CONDITION:${condition}]`;
     const proofPart = payload?.proofPhoto ? ` [RETURN_DISPATCH_PROOF:${payload.proofPhoto}]` : "";
     statusTag = `[BORROW_STATUS:RETURN_IN_TRANSIT] Return dispatched by ${actorName} on ${dateStr} (${fulfillmentMethod})${serialsPart}${methodPart}${courierPart}${condPart}${proofPart}${remarks ? " - " + remarks : ""}`.trim();
-    auditAction = "STOCK_TRANSFER_BORROW_RETURN_DISPATCHED";
-    auditDesc = `Borrowed stock transfer ${existingTransfer.transferCode} replacement dispatched out for delivery back to source branch (${fulfillmentMethod})${remarks ? ": " + remarks : ""}`;
-  } else if (actionType === "CONFIRM_RETURN" || actionType === "RETURN") {
-    // Lender confirms returned stocks received
+    auditAction = "STOCK_TRANSFER_RETURN_DISPATCHED";
+    auditDesc = `Stock transfer ${existingTransfer.transferCode} replacement dispatched out for delivery back to source branch (${fulfillmentMethod})${remarks ? ": " + remarks : ""}`;
+  } else if (actionType === "CONFIRM_RETURN" || actionType === "RETURN" || actionType === "MARK_REPLACED") {
+    // Lender confirms returned stocks received or marked as replaced directly
     const receiveProofPart = payload?.proofPhoto ? ` [RETURN_RECEIVE_PROOF:${payload.proofPhoto}]` : "";
-    statusTag = `[BORROW_STATUS:RETURNED] Nasoli na / confirmed received by ${actorName} on ${dateStr} (${condition})${receiveProofPart}${remarks ? " - " + remarks : ""}`.trim();
-    auditAction = "STOCK_TRANSFER_BORROW_RETURNED";
-    auditDesc = `Borrowed stock transfer ${existingTransfer.transferCode} confirmed returned / received (${condition})${remarks ? ": " + remarks : ""}`;
+    const serialsPart = replacementSerials
+      ? ` [RETURN_SERIALS:${Array.isArray(replacementSerials) ? replacementSerials.join(",") : replacementSerials}]`
+      : "";
+    statusTag = `[BORROW_STATUS:RETURNED] Replaced / unit returned confirmed by ${actorName} on ${dateStr} (${condition})${serialsPart}${receiveProofPart}${remarks ? " - " + remarks : ""}`.trim();
+    auditAction = "STOCK_TRANSFER_REPLACED";
+    auditDesc = `Stock transfer ${existingTransfer.transferCode} confirmed Replaced (${condition})${remarks ? ": " + remarks : ""}`;
   } else if (actionType === "INITIATE_PURCHASE") {
-    // Borrower requests conversion to purchase
-    statusTag = `[BORROW_STATUS:WAITING_AMOUNT] Outright purchase requested by ${actorName} on ${dateStr}. Awaiting billing amount from source branch.${remarks ? " - " + remarks : ""}`.trim();
-    auditAction = "STOCK_TRANSFER_BORROW_PURCHASE_REQUESTED";
-    auditDesc = `Borrowed stock transfer ${existingTransfer.transferCode} marked to be paid/purchased; awaiting billing from source branch`;
+    // Borrower requests conversion to purchase / billing
+    statusTag = `[BORROW_STATUS:WAITING_AMOUNT] Payment settlement requested by ${actorName} on ${dateStr}. Awaiting billing amount from source branch.${remarks ? " - " + remarks : ""}`.trim();
+    auditAction = "STOCK_TRANSFER_PAYMENT_REQUESTED";
+    auditDesc = `Stock transfer ${existingTransfer.transferCode} marked for payment settlement; awaiting billing from source branch`;
   } else if (actionType === "SET_BILLING_AMOUNT") {
     // Lender sets the billing amount & payment instructions
     const amtTag = amount ? ` [BILLING_AMOUNT:${amount}]` : "";
     const instrTag = paymentInstructions ? ` [PAYMENT_INSTRUCTIONS:${paymentInstructions}]` : "";
     statusTag = `[BORROW_STATUS:WAITING_PAYMENT] Billing set to ₱${Number(amount || 0).toLocaleString()} by ${actorName} on ${dateStr}.${amtTag}${instrTag}${remarks ? " - " + remarks : ""}`.trim();
-    auditAction = "STOCK_TRANSFER_BORROW_BILLING_SET";
-    auditDesc = `Billing of ₱${Number(amount || 0).toLocaleString()} set for borrowed stock transfer ${existingTransfer.transferCode}`;
+    auditAction = "STOCK_TRANSFER_BILLING_SET";
+    auditDesc = `Billing of ₱${Number(amount || 0).toLocaleString()} set for stock transfer ${existingTransfer.transferCode}`;
   } else if (actionType === "SUBMIT_PAYMENT") {
     // Borrower submits payment details
     const amtTag = amount ? ` [PAID_AMOUNT:${amount}]` : "";
@@ -4268,15 +4251,17 @@ const returnBorrowTransfer = async (stockTransferId, payload, actor) => {
     const refTag = referenceNo ? ` [PAID_REF:${referenceNo}]` : "";
     const payProofTag = payload?.proofPhoto ? ` [PAYMENT_PROOF:${payload.proofPhoto}]` : "";
     statusTag = `[BORROW_STATUS:PAYMENT_SUBMITTED] Payment of ₱${Number(amount || 0).toLocaleString()} via ${paymentMethod} submitted by ${actorName} on ${dateStr}.${amtTag}${methodTag}${refTag}${payProofTag}${remarks ? " - " + remarks : ""}`.trim();
-    auditAction = "STOCK_TRANSFER_BORROW_PAYMENT_SUBMITTED";
-    auditDesc = `Payment of ₱${Number(amount || 0).toLocaleString()} via ${paymentMethod} submitted for borrowed stock ${existingTransfer.transferCode}`;
-  } else if (actionType === "CONFIRM_PAYMENT" || actionType === "PURCHASE") {
-    // Lender confirms payment received -> COMPLETED / PURCHASED
+    auditAction = "STOCK_TRANSFER_PAYMENT_SUBMITTED";
+    auditDesc = `Payment of ₱${Number(amount || 0).toLocaleString()} via ${paymentMethod} submitted for stock transfer ${existingTransfer.transferCode}`;
+  } else if (actionType === "CONFIRM_PAYMENT" || actionType === "PURCHASE" || actionType === "MARK_PAID") {
+    // Lender confirms payment received -> COMPLETED / PAID
     const amtTag = amount ? ` [PAID_AMOUNT:${amount}]` : "";
     const methodTag = paymentMethod ? ` [PAID_METHOD:${paymentMethod}]` : "";
-    statusTag = `[BORROW_STATUS:PURCHASED] Outright purchase payment received and confirmed by ${actorName} on ${dateStr}.${amtTag}${methodTag}${remarks ? " - " + remarks : ""}`.trim();
-    auditAction = "STOCK_TRANSFER_BORROW_PURCHASED";
-    auditDesc = `Payment confirmed for borrowed stock transfer ${existingTransfer.transferCode} (Converted to Purchase & Settled)`;
+    const refTag = referenceNo ? ` [PAID_REF:${referenceNo}]` : "";
+    const payProofTag = payload?.proofPhoto ? ` [PAYMENT_PROOF:${payload.proofPhoto}]` : "";
+    statusTag = `[BORROW_STATUS:PURCHASED] Paid - Payment received and confirmed by ${actorName} on ${dateStr}.${amtTag}${methodTag}${refTag}${payProofTag}${remarks ? " - " + remarks : ""}`.trim();
+    auditAction = "STOCK_TRANSFER_PAID";
+    auditDesc = `Payment confirmed for stock transfer ${existingTransfer.transferCode} (Settled & Paid)`;
   }
 
   // Clean previous BORROW_STATUS and sub-tags when advancing status
@@ -4295,14 +4280,16 @@ const returnBorrowTransfer = async (stockTransferId, payload, actor) => {
     .replace(/\[RETURN_RECEIVE_PROOF:[^\]]*\]/g, "")
     .trim();
 
-  const newInternal = `${prevInternal ? prevInternal + " | " : ""}${statusTag}`;
+  const hasBorrowTag = `${existingTransfer.notes || ""} ${prevInternal}`.includes("[TRANSFER_TYPE:BORROW]");
+  const typeTag = hasBorrowTag ? "" : "[TRANSFER_TYPE:BORROW] ";
+  const newInternal = `${typeTag}${prevInternal ? prevInternal + " | " : ""}${statusTag}`;
 
   const updateData = {
     internalNotes: newInternal,
     updatedById: actor.id,
   };
 
-  if ((actionType === "CONFIRM_PAYMENT" || actionType === "PURCHASE") && amount) {
+  if ((actionType === "CONFIRM_PAYMENT" || actionType === "PURCHASE" || actionType === "MARK_PAID") && amount) {
     updateData.amountPaid = toMoneyDecimal(amount);
     updateData.paymentStatus = "PAID";
   }
@@ -4313,7 +4300,7 @@ const returnBorrowTransfer = async (stockTransferId, payload, actor) => {
     include: STOCK_TRANSFER_INCLUDE,
   });
 
-  if ((actionType === "CONFIRM_PAYMENT" || actionType === "PURCHASE") && amount) {
+  if ((actionType === "CONFIRM_PAYMENT" || actionType === "PURCHASE" || actionType === "MARK_PAID") && amount) {
     try {
       await prisma.stockTransferSettlement.create({
         data: {
@@ -4323,7 +4310,7 @@ const returnBorrowTransfer = async (stockTransferId, payload, actor) => {
             ? paymentMethod
             : "CASH",
           referenceNo: referenceNo || null,
-          notes: remarks || `Borrowed stock payment confirmed by ${actorName}`,
+          notes: remarks || `Stock transfer payment confirmed by ${actorName}`,
           recordedById: actor.id,
           recordedByName: actorName,
         },

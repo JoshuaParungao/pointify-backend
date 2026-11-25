@@ -117,6 +117,10 @@ const hasActiveCashCustodianAssignment = async (
     return true;
   }
 
+  if (!CASH_CUSTODIAN_ELIGIBLE_ROLES.has(actor.role)) {
+    return false;
+  }
+
   const assignment =
     await client.cashCustodianAssignment.findFirst({
       where: {
@@ -902,6 +906,9 @@ const createCashHandover = async (actor, cashBoxId, payload) => {
       data: {
         handoverCode,
         status: "PENDING",
+        ...(payload.transactionDate
+          ? { createdAt: parseOptionalDate(payload.transactionDate) }
+          : {}),
         amount: toMoneyString(amount),
         remarks: payload.remarks || null,
         cashBoxId: cashBox.id,

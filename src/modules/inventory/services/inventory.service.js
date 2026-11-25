@@ -1,6 +1,7 @@
 const prisma = require("../../../config/prisma");
 
 const { createAuditLog } = require("../../../utils/auditLogger");
+const { parseTransactionDate } = require("../../../utils/businessDate");
 
 const isSuperOwner = (actor) => actor && actor.role === "SUPER_OWNER";
 
@@ -54,6 +55,7 @@ const parseBoolean = (value) => {
 const getInventoryOverview = async (actor, query) => {
   const branchId = resolveBranchFilter(actor, query.branchId);
   const search = query.search ? String(query.search).trim() : "";
+  const searchTokens = search ? search.split(/\s+/).filter(Boolean) : [];
   const lowStockOnly = parseBoolean(query.lowStockOnly);
 
   let categoryCondition = query.categoryId;
@@ -70,38 +72,41 @@ const getInventoryOverview = async (actor, query) => {
   const where = {
     ...(branchId ? { branchId } : {}),
     ...(query.categoryId ? { categoryId: categoryCondition } : {}),
-    ...(query.brand && query.brand.trim()
-      ? { brand: { contains: query.brand.trim(), mode: "insensitive" } }
-      : {}),
     ...(query.status ? { status: query.status } : {}),
-    ...(search
+    ...(searchTokens.length > 0
       ? {
-          OR: [
-            {
-              itemCode: {
-                contains: search,
-                mode: "insensitive",
+          AND: searchTokens.map((token) => ({
+            OR: [
+              {
+                itemCode: {
+                  contains: token,
+                  mode: "insensitive",
+                },
               },
-            },
-            {
-              itemName: {
-                contains: search,
-                mode: "insensitive",
+              {
+                itemName: {
+                  contains: token,
+                  mode: "insensitive",
+                },
               },
-            },
-            {
-              brand: {
-                contains: search,
-                mode: "insensitive",
+              {
+                description: {
+                  contains: token,
+                  mode: "insensitive",
+                },
               },
-            },
-            {
-              modelName: {
-                contains: search,
-                mode: "insensitive",
+              {
+                category: {
+                  is: {
+                    name: {
+                      contains: token,
+                      mode: "insensitive",
+                    },
+                  },
+                },
               },
-            },
-          ],
+            ],
+          })),
         }
       : {}),
   };
@@ -121,6 +126,9 @@ const getInventoryOverview = async (actor, query) => {
           },
         },
         {
+          itemName: "asc",
+        },
+        {
           itemCode: "asc",
         },
       ],
@@ -129,11 +137,8 @@ const getInventoryOverview = async (actor, query) => {
         id: true,
         itemCode: true,
         itemName: true,
-        brand: true,
-        modelName: true,
         status: true,
         isSerialized: true,
-        attributes: true,
         minimumStock: true,
         reorderLevel: true,
         branch: {
@@ -148,6 +153,14 @@ const getInventoryOverview = async (actor, query) => {
             id: true,
             categoryCode: true,
             name: true,
+            parentId: true,
+            parent: {
+              select: {
+                id: true,
+                categoryCode: true,
+                name: true,
+              },
+            },
           },
         },
         unit: {
@@ -163,6 +176,8 @@ const getInventoryOverview = async (actor, query) => {
             batchCode: true,
             quantityIn: true,
             quantityAvailable: true,
+            supplierName: true,
+            referenceNo: true,
             status: true,
           },
           orderBy: {
@@ -200,11 +215,8 @@ const getInventoryOverview = async (actor, query) => {
       id: item.id,
       itemCode: item.itemCode,
       itemName: item.itemName,
-      brand: item.brand,
-      modelName: item.modelName,
       status: item.status,
       isSerialized: item.isSerialized,
-      attributes: item.attributes || null,
       branch: item.branch,
       category: item.category,
       unit: item.unit,
@@ -336,6 +348,7 @@ const getInventoryBatches = async (actor, query) => {
             itemId: true,
             unitCost: true,
             operationalUnitCost: true,
+            supplierName: true,
           },
         },
         branch: {
@@ -350,8 +363,6 @@ const getInventoryBatches = async (actor, query) => {
             id: true,
             itemCode: true,
             itemName: true,
-            brand: true,
-            modelName: true,
             isSerialized: true,
           },
         },
@@ -450,14 +461,29 @@ const getInventorySerials = async (actor, query) => {
             id: true,
             itemCode: true,
             itemName: true,
-            brand: true,
-            modelName: true,
+            category: {
+              select: {
+                id: true,
+                categoryCode: true,
+                name: true,
+                parentId: true,
+                parent: {
+                  select: {
+                    id: true,
+                    categoryCode: true,
+                    name: true,
+                  },
+                },
+              },
+            },
           },
         },
         batch: {
           select: {
             id: true,
             batchCode: true,
+            supplierName: true,
+            referenceNo: true,
           },
         },
         saleItems: {
@@ -638,6 +664,10 @@ const createStockIn = async (actor, payload) => {
 
   const quantity = Number(payload.quantity);
   const serialNumbers = assertUniqueSerialNumbers(payload.serialNumbers);
+  const effectiveDate = parseTransactionDate(
+    payload.transactionDate || payload.movementDate,
+    new Date()
+  );
 
   if (item.isSerialized && serialNumbers.length !== quantity) {
     const error = new Error("SERIAL_COUNT_MISMATCH");
@@ -787,6 +817,7 @@ const createStockIn = async (actor, payload) => {
             sellingPrice5: payload.sellingPrice5 !== undefined ? payload.sellingPrice5.toString() : item.price5.toString(),
             supplierName: payload.supplierName || null,
             referenceNo: payload.referenceNo || null,
+            receivedAt: effectiveDate,
             remarks: payload.remarks || null,
             expiryDate: payload.expiryDate ? new Date(payload.expiryDate) : null,
             status: "ACTIVE",
@@ -820,6 +851,7 @@ const createStockIn = async (actor, payload) => {
         newQuantity: newQuantity.toString(),
         unitCost: resolvedUnitCost,
         referenceNo: payload.referenceNo || null,
+        movementDate: effectiveDate,
         remarks: payload.remarks || "Manual stock-in.",
         createdById: actor.id,
         updatedById: actor.id,
@@ -876,6 +908,10 @@ const createStockAdjustment = async (actor, payload) => {
   const allowedBranchId = ensureManageBranchAccess(actor, requestedBranchId);
   const quantity = Number(payload.quantity);
   const movementType = payload.type === "INCREASE" ? "ADJUSTMENT_IN" : "ADJUSTMENT_OUT";
+  const effectiveDate = parseTransactionDate(
+    payload.transactionDate || payload.movementDate,
+    new Date()
+  );
 
   return prisma.$transaction(async (tx) => {
     let batch = null;
@@ -956,6 +992,7 @@ const createStockAdjustment = async (actor, payload) => {
             sellingPrice3: item.price3 ? item.price3.toString() : "0",
             sellingPrice4: item.price4 ? item.price4.toString() : "0",
             sellingPrice5: item.price5 ? item.price5.toString() : "0",
+            receivedAt: effectiveDate,
             remarks: payload.remarks || "Initial batch for adjustment.",
             status: "ACTIVE",
             createdById: actor.id,
@@ -1122,6 +1159,7 @@ const createStockAdjustment = async (actor, payload) => {
         newQuantity: newQuantity.toString(),
         unitCost: batch.unitCost ? batch.unitCost.toString() : null,
         referenceNo: payload.referenceNo || null,
+        movementDate: effectiveDate,
         remarks: payload.remarks || "Manual stock adjustment.",
         createdById: actor.id,
         updatedById: actor.id,
@@ -1229,8 +1267,6 @@ const updateSerialStatus = async (actor, serialId, payload) => {
           id: true,
           itemCode: true,
           itemName: true,
-          brand: true,
-          modelName: true,
         },
       },
       batch: {
@@ -1383,8 +1419,21 @@ const updateSerialBatch = async (actor, serialId, payload) => {
             id: true,
             itemCode: true,
             itemName: true,
-            brand: true,
-            modelName: true,
+            category: {
+              select: {
+                id: true,
+                categoryCode: true,
+                name: true,
+                parentId: true,
+                parent: {
+                  select: {
+                    id: true,
+                    categoryCode: true,
+                    name: true,
+                  },
+                },
+              },
+            },
           },
         },
         batch: {
@@ -1548,14 +1597,29 @@ const getInventoryMovements = async (actor, query) => {
             id: true,
             itemCode: true,
             itemName: true,
-            brand: true,
-            modelName: true,
+            category: {
+              select: {
+                id: true,
+                categoryCode: true,
+                name: true,
+                parentId: true,
+                parent: {
+                  select: {
+                    id: true,
+                    categoryCode: true,
+                    name: true,
+                  },
+                },
+              },
+            },
           },
         },
         batch: {
           select: {
             id: true,
             batchCode: true,
+            supplierName: true,
+            referenceNo: true,
           },
         },
         serial: {
@@ -1588,6 +1652,131 @@ const getInventoryMovements = async (actor, query) => {
   };
 };
 
+const updateBatchCode = async (actor, batchId, { batchCode, remarks, supplierName }) => {
+  const normalizedBatchCode = String(batchCode).trim();
+  if (!normalizedBatchCode) {
+    const error = new Error("BATCH_CODE_REQUIRED");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const batch = await prisma.inventoryBatch.findUnique({
+    where: { id: batchId },
+    include: { item: true },
+  });
+
+  if (!batch) {
+    const error = new Error("BATCH_NOT_FOUND");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (actor.role !== "SUPER_OWNER" && batch.branchId !== actor.branchId) {
+    const error = new Error("FORBIDDEN");
+    error.statusCode = 403;
+    throw error;
+  }
+
+  const existingWithCode = await prisma.inventoryBatch.findUnique({
+    where: {
+      branchId_batchCode: {
+        branchId: batch.branchId,
+        batchCode: normalizedBatchCode,
+      },
+    },
+  });
+
+  if (existingWithCode && existingWithCode.id !== batch.id) {
+    const error = new Error("BATCH_CODE_ALREADY_EXISTS");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  const updated = await prisma.inventoryBatch.update({
+    where: { id: batch.id },
+    data: {
+      batchCode: normalizedBatchCode,
+      ...(remarks !== undefined ? { remarks } : {}),
+      ...(supplierName !== undefined ? { supplierName: supplierName ? String(supplierName).trim() : null } : {}),
+      updatedById: actor.id,
+    },
+    include: { item: true },
+  });
+
+  await createAuditLog({
+    actor,
+    branchId: updated.branchId,
+    action: "BATCH_CODE_UPDATED",
+    entityType: "InventoryBatch",
+    entityId: updated.id,
+    description: `Batch code for product ${updated.item?.itemCode || batch.itemId} updated from "${batch.batchCode}" to "${normalizedBatchCode}"`,
+    metadata: {
+      itemId: batch.itemId,
+      itemCode: updated.item?.itemCode,
+      previousBatchCode: batch.batchCode,
+      newBatchCode: normalizedBatchCode,
+      remarks,
+    },
+  });
+
+  return updated;
+};
+
+const createBatch = async (actor, { branchId, itemId, batchCode, remarks, supplierName }) => {
+  const targetBranchId = actor.role === "SUPER_OWNER" && branchId ? branchId : actor.branchId;
+  const normalizedBatchCode = String(batchCode || "").trim();
+  if (!normalizedBatchCode) {
+    const error = new Error("BATCH_CODE_REQUIRED");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!targetBranchId) {
+    const error = new Error("BRANCH_REQUIRED");
+    error.statusCode = 400;
+    throw error;
+  }
+  const item = await prisma.item.findUnique({ where: { id: itemId } });
+  if (!item) {
+    const error = new Error("ITEM_NOT_FOUND");
+    error.statusCode = 404;
+    throw error;
+  }
+  const existing = await prisma.inventoryBatch.findUnique({
+    where: {
+      branchId_batchCode: {
+        branchId: targetBranchId,
+        batchCode: normalizedBatchCode,
+      },
+    },
+  });
+  if (existing) {
+    const error = new Error("BATCH_CODE_ALREADY_EXISTS");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  const created = await prisma.inventoryBatch.create({
+    data: {
+      branchId: targetBranchId,
+      itemId: item.id,
+      batchCode: normalizedBatchCode,
+      supplierName: supplierName ? String(supplierName).trim() : null,
+      quantityIn: 0,
+      quantityAvailable: 0,
+      unitCost: item.costPrice || 0,
+      sellingPrice1: item.sellingPrice1 || 0,
+      sellingPrice2: item.sellingPrice2 || 0,
+      sellingPrice3: item.sellingPrice3 || 0,
+      sellingPrice4: item.sellingPrice4 || 0,
+      sellingPrice5: item.sellingPrice5 || 0,
+      remarks: remarks || "Manual batch setup",
+      createdById: actor.id,
+    },
+    include: { item: true },
+  });
+  return created;
+};
+
 module.exports = {
   getInventoryOverview,
   getInventoryBatches,
@@ -1597,4 +1786,6 @@ module.exports = {
   createStockAdjustment,
   updateSerialStatus,
   updateSerialBatch,
+  updateBatchCode,
+  createBatch,
 };

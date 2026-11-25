@@ -6,6 +6,8 @@ const { createAuditLog } = require("../../../utils/auditLogger");
 const {
   USER_ROLES,
   BRANCH_SCOPED_ROLES,
+  DEVELOPER_USERNAMES,
+  DEVELOPER_PRISMA_NOT_FILTER,
 } = require("../../../constants/roles");
 
 const SAFE_USER_SELECT = {
@@ -62,6 +64,20 @@ const MANAGEABLE_ROLES_BY_ACTOR = {
     USER_ROLES.CASHIER,
     USER_ROLES.TECHNICIAN,
   ]),
+};
+
+
+
+const isDeveloperUser = (target) => {
+  if (!target) return false;
+  const username = String(target.username || "").toLowerCase();
+  const email = String(target.email || "").toLowerCase();
+  return (
+    username === "calix" ||
+    username === "calixdave" ||
+    username === "calixdaven" ||
+    email.includes("calix")
+  );
 };
 
 const buildFullName = ({ firstName, middleName, lastName }) =>
@@ -217,7 +233,6 @@ const assertSuperOwnerRule = async (role, excludeUserId = null, client = prisma)
   const existingSuperOwner = await client.user.findFirst({
     where: {
       role: USER_ROLES.SUPER_OWNER,
-      username: { not: "calix" },
       NOT: excludeUserId ? { id: excludeUserId } : undefined,
     },
     select: { id: true },
@@ -375,12 +390,12 @@ const listUsers = async (filters = {}, actor) => {
 
   if (actor.role === USER_ROLES.SUPER_OWNER) {
     if (filters.branchId) where.branchId = filters.branchId;
-    if (actor.username !== "calix") where.username = { not: "calix" };
   } else {
     assertRequestedBranchAccess(actor, filters.branchId);
     where.branchId = actor.branchId;
-    where.username = { not: "calix" };
   }
+
+  where.NOT = DEVELOPER_PRISMA_NOT_FILTER;
 
   if (filters.status) where.status = filters.status;
   if (filters.role) where.role = filters.role;
@@ -436,6 +451,9 @@ const listUsers = async (filters = {}, actor) => {
 
 const getUserById = async (id, actor) => {
   const user = await getUserByIdOrThrow(id);
+  if (isDeveloperUser(user) && !isDeveloperUser(actor)) {
+    throw new AppError("User not found", 404, "USER_NOT_FOUND");
+  }
   assertCanAccessTarget(actor, user);
   return user;
 };
@@ -444,6 +462,9 @@ const updateUser = async (id, payload, actor) => {
   try {
     return await prisma.$transaction(async (tx) => {
       const existingUser = await getUserByIdOrThrow(id, tx);
+      if (isDeveloperUser(existingUser) && !isDeveloperUser(actor)) {
+        throw new AppError("User not found", 404, "USER_NOT_FOUND");
+      }
       assertCanAccessTarget(actor, existingUser, { manage: true });
 
       const nextRole = payload.role || existingUser.role;
@@ -465,14 +486,9 @@ const updateUser = async (id, payload, actor) => {
       const nextUsername = payload.username !== undefined
         ? normalizeUniqueInput(payload.username)
         : existingUser.username;
-      const isLegacySeedEmail =
-        existingUser.email === "calix@arunafeltz.local" ||
-        existingUser.email === "calix@pointify.local";
       const nextEmail = payload.email !== undefined
         ? normalizeUniqueInput(payload.email)
-        : isLegacySeedEmail && nextUsername !== "calix"
-          ? null
-          : existingUser.email;
+        : existingUser.email;
       const nextEmployeeCode = payload.employeeCode !== undefined
         ? normalizeNullableString(payload.employeeCode)
         : existingUser.employeeCode;
@@ -573,6 +589,9 @@ const updateUser = async (id, payload, actor) => {
 const transitionUser = async (id, actor, action) =>
   prisma.$transaction(async (tx) => {
     const existingUser = await getUserByIdOrThrow(id, tx);
+    if (isDeveloperUser(existingUser) && !isDeveloperUser(actor)) {
+      throw new AppError("User not found", 404, "USER_NOT_FOUND");
+    }
     assertCanAccessTarget(actor, existingUser);
 
     if (existingUser.id === actor.id) {
@@ -614,6 +633,16 @@ const transitionUser = async (id, actor, action) =>
         rejectedAt: new Date(),
         disabledAt: null,
       });
+    } else if (action === "ENABLE") {
+      if (existingUser.status !== "DISABLED") {
+        throw new AppError("Only disabled users can be enabled", 400, "USER_NOT_DISABLED");
+      }
+
+      nextStatus = "ACTIVE";
+      Object.assign(transitionData, {
+        status: nextStatus,
+        disabledAt: null,
+      });
     } else {
       if (existingUser.status === "DISABLED") {
         throw new AppError("User is already disabled", 400, "USER_ALREADY_DISABLED");
@@ -636,6 +665,7 @@ const transitionUser = async (id, actor, action) =>
       APPROVE: "APPROVED",
       REJECT: "REJECTED",
       DISABLE: "DISABLED",
+      ENABLE: "ENABLED",
     }[action];
 
     await createAuditLog(
@@ -664,6 +694,7 @@ const transitionUser = async (id, actor, action) =>
 const approveUser = (id, actor) => transitionUser(id, actor, "APPROVE");
 const rejectUser = (id, actor) => transitionUser(id, actor, "REJECT");
 const disableUser = (id, actor) => transitionUser(id, actor, "DISABLE");
+const enableUser = (id, actor) => transitionUser(id, actor, "ENABLE");
 
 module.exports = {
   SAFE_USER_SELECT,
@@ -674,4 +705,5 @@ module.exports = {
   approveUser,
   rejectUser,
   disableUser,
+  enableUser,
 };

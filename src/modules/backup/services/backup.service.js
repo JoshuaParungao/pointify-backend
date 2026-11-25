@@ -44,6 +44,9 @@ const ALL_MODELS = [
   "serviceJob",
   "servicePayment",
   "warrantyClaim",
+  "supplierReturn",
+  "supplierReturnItem",
+  "supplierReturnSerial",
   "returnRequest",
   "returnItem",
   "deliveryReceipt",
@@ -88,7 +91,7 @@ const generateDatabaseSnapshot = async (actor = null) => {
 
   const snapshot = {
     version: "1.0.0",
-    system: "Pointify Business Management",
+    system: "POSynctify Cloud POS & Business Management",
     exportedAt: new Date().toISOString(),
     exportedBy: actor
       ? {

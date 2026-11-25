@@ -1,6 +1,7 @@
 const prisma = require("../../../config/prisma");
 const AppError = require("../../../utils/appError");
-const { purgeItemsByIds } = require("../../../utils/catalogPurge");
+const logger = require("../../../utils/logger");
+const { createAuditLog } = require("../../../utils/auditLogger");
 
 const ITEM_SELECT = {
   id: true,
@@ -11,7 +12,6 @@ const ITEM_SELECT = {
   brand: true,
   modelName: true,
   status: true,
-  attributes: true,
   isSerialized: true,
   hasWarranty: true,
   costPrice: true,
@@ -49,7 +49,6 @@ const ITEM_SELECT = {
           name: true,
         },
       },
-      attributeSchema: true,
     },
   },
 
@@ -277,7 +276,6 @@ const getActiveCategoryOrThrow = async (categoryId) => {
       status: true,
       branchId: true,
       parentId: true,
-      attributeSchema: true,
       branch: {
         select: {
           id: true,
@@ -301,19 +299,6 @@ const getActiveCategoryOrThrow = async (categoryId) => {
   }
 
   return category;
-};
-
-const validateItemAttributes = (attributes) => {
-  if (attributes && typeof attributes === "object" && !Array.isArray(attributes)) {
-    const cleaned = {};
-    for (const [key, val] of Object.entries(attributes)) {
-      if (val !== undefined && val !== null && String(val).trim() !== "") {
-        cleaned[key] = typeof val === "string" ? val.trim() : val;
-      }
-    }
-    return Object.keys(cleaned).length > 0 ? cleaned : null;
-  }
-  return null;
 };
 
 const getActiveUnitOrThrow = async (unitId) => {
@@ -457,6 +442,165 @@ const assertItemCodeIsUniqueForUpdate = async (
   }
 };
 
+const resolveOrCreateCategoryInBranch = async (sourceCategoryId, targetBranchId, actor) => {
+  if (!sourceCategoryId || !targetBranchId) return null;
+
+  const sourceCategory = await prisma.itemCategory.findUnique({
+    where: { id: sourceCategoryId },
+    include: { parent: true },
+  });
+
+  if (!sourceCategory) return null;
+
+  if (sourceCategory.branchId === targetBranchId) {
+    return sourceCategory.id;
+  }
+
+  let targetParentId = null;
+  if (sourceCategory.parentId && sourceCategory.parent) {
+    const parentCode = sourceCategory.parent.categoryCode;
+    const parentName = sourceCategory.parent.name;
+
+    let targetParent = await prisma.itemCategory.findFirst({
+      where: {
+        branchId: targetBranchId,
+        OR: [
+          { categoryCode: parentCode },
+          { name: { equals: parentName, mode: "insensitive" } },
+        ],
+      },
+    });
+
+    if (!targetParent) {
+      targetParent = await prisma.itemCategory.create({
+        data: {
+          branchId: targetBranchId,
+          categoryCode: parentCode,
+          name: parentName,
+          description: sourceCategory.parent.description,
+          status: "ACTIVE",
+          createdById: actor?.id || null,
+          updatedById: actor?.id || null,
+        },
+      });
+    }
+    targetParentId = targetParent.id;
+  }
+
+  let targetCategory = await prisma.itemCategory.findFirst({
+    where: {
+      branchId: targetBranchId,
+      OR: [
+        { categoryCode: sourceCategory.categoryCode },
+        { name: { equals: sourceCategory.name, mode: "insensitive" } },
+      ],
+    },
+  });
+
+  if (!targetCategory) {
+    targetCategory = await prisma.itemCategory.create({
+      data: {
+        branchId: targetBranchId,
+        categoryCode: sourceCategory.categoryCode,
+        name: sourceCategory.name,
+        description: sourceCategory.description,
+        parentId: targetParentId,
+        status: "ACTIVE",
+        createdById: actor?.id || null,
+        updatedById: actor?.id || null,
+      },
+    });
+  } else if (targetParentId && targetCategory.parentId !== targetParentId) {
+    targetCategory = await prisma.itemCategory.update({
+      where: { id: targetCategory.id },
+      data: { parentId: targetParentId },
+    });
+  }
+
+  return targetCategory.id;
+};
+
+const mirrorItemAcrossBranches = async (baseItem, actor, oldItemCode = null) => {
+  try {
+    const targetBranches = await prisma.branch.findMany({
+      where: {
+        id: { not: baseItem.branchId },
+        status: "ACTIVE",
+      },
+      select: { id: true, code: true, name: true },
+    });
+
+    const lookupCode = oldItemCode || baseItem.itemCode;
+
+    for (const targetBranch of targetBranches) {
+      const existingInTarget = await prisma.item.findFirst({
+        where: {
+          branchId: targetBranch.id,
+          itemCode: lookupCode,
+        },
+      });
+
+      const targetCategoryId = await resolveOrCreateCategoryInBranch(
+        baseItem.categoryId,
+        targetBranch.id,
+        actor
+      );
+
+      // Only mirror metadata (catalog identity) across branches.
+      // Prices (price1-5), costPrice, replenishment thresholds, and inventory are branch-unique and must NOT be overwritten.
+      const mirrorMetadata = {
+        itemCode: baseItem.itemCode,
+        itemName: baseItem.itemName,
+        description: baseItem.description,
+        barcode: baseItem.barcode,
+        brand: baseItem.brand,
+        modelName: baseItem.modelName,
+        status: baseItem.status || "ACTIVE",
+        isSerialized: Boolean(baseItem.isSerialized),
+        hasWarranty: Boolean(baseItem.hasWarranty),
+        unitId: baseItem.unitId,
+        updatedById: actor?.id || null,
+      };
+
+      if (targetCategoryId) {
+        mirrorMetadata.categoryId = targetCategoryId;
+      }
+
+      if (existingInTarget) {
+        // Update product metadata ONLY in target branch.
+        // NOTICE: costPrice, price1, price2, price3, price4, price5, minimumStock, reorderLevel,
+        // InventoryBatch, ItemSerial, movements, and stock are NOT modified.
+        // Each branch maintains its own unique selling prices, costs, and inventory.
+        await prisma.item.update({
+          where: { id: existingInTarget.id },
+          data: mirrorMetadata,
+        });
+      } else {
+        // Create new mirrored product record in target branch with 0 stock and 0 prices/cost.
+        // Each branch configures its own unique selling prices, costs, and inventory.
+        await prisma.item.create({
+          data: {
+            ...mirrorMetadata,
+            costPrice: "0.00",
+            price1: "0.00",
+            price2: "0.00",
+            price3: "0.00",
+            price4: "0.00",
+            price5: "0.00",
+            minimumStock: "0.00",
+            reorderLevel: "0.00",
+            branchId: targetBranch.id,
+            categoryId: targetCategoryId || baseItem.categoryId,
+            createdById: actor?.id || null,
+          },
+        });
+      }
+    }
+  } catch (mirrorErr) {
+    logger.error("Error mirroring item across branches:", mirrorErr);
+  }
+};
+
 const createItem = async (payload, actor) => {
   const branchId = getActorBranchIdForCreate(actor, payload.branchId);
   const branch = await getActiveBranchOrThrow(branchId);
@@ -480,18 +624,12 @@ const createItem = async (payload, actor) => {
 
   await assertItemCodeIsUnique(branch.id, itemCode);
 
-  const attributes = validateItemAttributes(payload.attributes);
-
   const createdItem = await prisma.item.create({
     data: {
       itemCode,
       itemName: payload.itemName.trim(),
       description: normalizeOptionalString(payload.description),
-      barcode: normalizeOptionalString(payload.barcode),
-      brand: normalizeOptionalString(payload.brand),
-      modelName: normalizeOptionalString(payload.modelName),
       status: "ACTIVE",
-      attributes,
       isSerialized: Boolean(payload.isSerialized),
       hasWarranty: Boolean(payload.hasWarranty),
 
@@ -515,139 +653,29 @@ const createItem = async (payload, actor) => {
     select: ITEM_SELECT,
   });
 
-  // Auto-propagate item across other active branches with 0 stock
-  try {
-    const otherBranches = await prisma.branch.findMany({
-      where: {
-        id: { not: branch.id },
-        status: "ACTIVE",
-      },
-      select: { id: true, code: true, name: true },
-    });
+  // Mirror metadata across other active branches, leaving prices, cost, and stock unique to each branch
+  await mirrorItemAcrossBranches(createdItem, actor);
 
-    for (const targetBranch of otherBranches) {
-      const existingInTarget = await prisma.item.findUnique({
-        where: {
-          branchId_itemCode: {
-            branchId: targetBranch.id,
-            itemCode: createdItem.itemCode,
-          },
-        },
-        select: { id: true },
-      });
+  await createAuditLog({
+    actor,
+    branchId: createdItem.branchId,
+    action: "ITEM_CREATED",
+    entityType: "Item",
+    entityId: createdItem.id,
+    description: `Created new product ${createdItem.itemCode} - ${createdItem.itemName || createdItem.description}`,
+    metadata: {
+      itemCode: createdItem.itemCode,
+      itemName: createdItem.itemName || createdItem.description,
+      costPrice: createdItem.costPrice,
+      price1: createdItem.price1,
+      price2: createdItem.price2,
+      price3: createdItem.price3,
+      price4: createdItem.price4,
+      price5: createdItem.price5,
+    },
+  });
 
-      if (!existingInTarget) {
-        let targetCategoryId = null;
-
-        let matchedCat = await prisma.itemCategory.findFirst({
-          where: {
-            branchId: targetBranch.id,
-            OR: [
-              { categoryCode: category.categoryCode },
-              { name: { equals: category.name, mode: "insensitive" } },
-            ],
-          },
-          select: { id: true },
-        });
-
-        if (!matchedCat && category.parentId) {
-          const parentCat = await prisma.itemCategory.findUnique({
-            where: { id: category.parentId },
-            select: { id: true, categoryCode: true, name: true, description: true },
-          });
-
-          if (parentCat) {
-            let targetParentCat = await prisma.itemCategory.findFirst({
-              where: {
-                branchId: targetBranch.id,
-                OR: [
-                  { categoryCode: parentCat.categoryCode },
-                  { name: { equals: parentCat.name, mode: "insensitive" } },
-                ],
-              },
-              select: { id: true },
-            });
-
-            if (!targetParentCat) {
-              targetParentCat = await prisma.itemCategory.create({
-                data: {
-                  branchId: targetBranch.id,
-                  categoryCode: parentCat.categoryCode,
-                  name: parentCat.name,
-                  description: parentCat.description,
-                  status: "ACTIVE",
-                  createdById: actor.id,
-                  updatedById: actor.id,
-                },
-                select: { id: true },
-              });
-            }
-
-            matchedCat = await prisma.itemCategory.create({
-              data: {
-                branchId: targetBranch.id,
-                categoryCode: category.categoryCode,
-                name: category.name,
-                description: category.description,
-                parentId: targetParentCat.id,
-                status: "ACTIVE",
-                createdById: actor.id,
-                updatedById: actor.id,
-              },
-              select: { id: true },
-            });
-          }
-        } else if (!matchedCat) {
-          matchedCat = await prisma.itemCategory.create({
-            data: {
-              branchId: targetBranch.id,
-              categoryCode: category.categoryCode,
-              name: category.name,
-              description: category.description,
-              status: "ACTIVE",
-              createdById: actor.id,
-              updatedById: actor.id,
-            },
-            select: { id: true },
-          });
-        }
-
-        targetCategoryId = matchedCat ? matchedCat.id : category.id;
-
-        await prisma.item.create({
-          data: {
-            itemCode: createdItem.itemCode,
-            itemName: createdItem.itemName,
-            description: createdItem.description,
-            barcode: createdItem.barcode,
-            brand: createdItem.brand,
-            modelName: createdItem.modelName,
-            status: "ACTIVE",
-            attributes: createdItem.attributes,
-            isSerialized: createdItem.isSerialized,
-            hasWarranty: createdItem.hasWarranty,
-            costPrice: "0.00",
-            price1: "0.00",
-            price2: "0.00",
-            price3: "0.00",
-            price4: "0.00",
-            price5: "0.00",
-            minimumStock: "0.00",
-            reorderLevel: "0.00",
-            branchId: targetBranch.id,
-            categoryId: targetCategoryId,
-            unitId: createdItem.unitId,
-            createdById: actor.id,
-            updatedById: actor.id,
-          },
-        });
-      }
-    }
-  } catch (propagateErr) {
-    console.error("Auto-propagation to other branches non-fatal error:", propagateErr);
-  }
-
-  return createdItem;
+  return attachAvailableStock(createdItem);
 };
 
 const listItems = async (filters = {}, actor) => {
@@ -672,12 +700,7 @@ const listItems = async (filters = {}, actor) => {
 
   const where = {
     branchId,
-    itemCode: { not: { startsWith: "__DELETED_" } },
-    itemName: { not: { startsWith: "__DELETED_" } },
     ...(filters.categoryId ? { categoryId: categoryCondition } : {}),
-    ...(filters.brand && filters.brand.trim()
-      ? { brand: { contains: filters.brand.trim(), mode: "insensitive" } }
-      : {}),
     unitId: filters.unitId,
     status: filters.status,
     isSerialized: parseBooleanQuery(filters.isSerialized),
@@ -694,6 +717,12 @@ const listItems = async (filters = {}, actor) => {
       },
       {
         itemName: {
+          contains: search,
+          mode: "insensitive",
+        },
+      },
+      {
+        description: {
           contains: search,
           mode: "insensitive",
         },
@@ -716,12 +745,6 @@ const listItems = async (filters = {}, actor) => {
           mode: "insensitive",
         },
       },
-      {
-        description: {
-          contains: search,
-          mode: "insensitive",
-        },
-      },
     ];
   }
 
@@ -734,6 +757,9 @@ const listItems = async (filters = {}, actor) => {
           branch: {
             code: "asc",
           },
+        },
+        {
+          itemName: "asc",
         },
         {
           itemCode: "asc",
@@ -828,18 +854,6 @@ const updateItemById = async (itemId, payload, actor) => {
     updateData.description = normalizeOptionalString(payload.description);
   }
 
-  if (payload.barcode !== undefined) {
-    updateData.barcode = normalizeOptionalString(payload.barcode);
-  }
-
-  if (payload.brand !== undefined) {
-    updateData.brand = normalizeOptionalString(payload.brand);
-  }
-
-  if (payload.modelName !== undefined) {
-    updateData.modelName = normalizeOptionalString(payload.modelName);
-  }
-
   if (payload.status !== undefined) {
     updateData.status = payload.status;
   }
@@ -859,10 +873,6 @@ const updateItemById = async (itemId, payload, actor) => {
     assertCategoryBelongsToBranchId(targetCategory, existingItem.branchId);
 
     updateData.categoryId = targetCategory.id;
-  }
-
-  if (payload.attributes !== undefined) {
-    updateData.attributes = validateItemAttributes(payload.attributes);
   }
 
   if (payload.unitId !== undefined) {
@@ -903,44 +913,45 @@ const updateItemById = async (itemId, payload, actor) => {
     updateData.reorderLevel = normalizeMoney(payload.reorderLevel);
   }
 
-  return prisma.item.update({
+  const updatedItem = await prisma.item.update({
     where: {
       id: existingItem.id,
     },
     data: updateData,
     select: ITEM_SELECT,
   });
-};
 
-const deleteItemById = async (itemId, actor) => {
-  const existingItem = await getItemById(itemId, actor);
-  await purgeItemsByIds([existingItem.id]);
-  return {
-    success: true,
-    message: `Item "${existingItem.itemName}" deleted successfully.`,
-  };
-};
+  // Mirror updated product metadata across all other active branches (prices, cost, and stock remain branch-unique)
+  await mirrorItemAcrossBranches(updatedItem, actor, existingItem.itemCode);
 
-const clearAllItems = async (actor, requestedBranchId) => {
-  if (actor.role !== "SUPER_OWNER" && actor.role !== "ADMIN" && actor.role !== "BRANCH_OWNER") {
-    throw new AppError("Only Owner or Admin can clear items", 403, "FORBIDDEN");
+  // Record audit trail of the product edit
+  const changedFields = [];
+  const changesMeta = {};
+  for (const [key, val] of Object.entries(updateData)) {
+    const oldVal = existingItem[key];
+    if (String(oldVal ?? "") !== String(val ?? "")) {
+      changedFields.push(`${key}: ${oldVal ?? "none"} -> ${val ?? "none"}`);
+      changesMeta[key] = { from: oldVal, to: val };
+    }
   }
 
-  const branchId = getActorBranchIdForCreate(actor, requestedBranchId);
-  const branch = await getActiveBranchOrThrow(branchId);
+  if (changedFields.length > 0) {
+    await createAuditLog({
+      actor,
+      branchId: updatedItem.branchId,
+      action: "ITEM_UPDATED",
+      entityType: "Item",
+      entityId: updatedItem.id,
+      description: `Updated product ${updatedItem.itemCode} (${updatedItem.itemName || updatedItem.description}): ${changedFields.slice(0, 4).join(", ")}${changedFields.length > 4 ? ` (+${changedFields.length - 4} more)` : ""}`,
+      metadata: {
+        itemCode: updatedItem.itemCode,
+        itemName: updatedItem.itemName || updatedItem.description,
+        changes: changesMeta,
+      },
+    });
+  }
 
-  const branchItems = await prisma.item.findMany({
-    where: { branchId: branch.id },
-    select: { id: true },
-  });
-
-  const { deletedCount } = await purgeItemsByIds(branchItems.map((i) => i.id));
-
-  return {
-    success: true,
-    deletedCount,
-    message: `All ${deletedCount} items in ${branch.name} have been cleared successfully.`,
-  };
+  return attachAvailableStock(updatedItem);
 };
 
 module.exports = {
@@ -949,6 +960,4 @@ module.exports = {
   listItems,
   getItemById,
   updateItemById,
-  deleteItemById,
-  clearAllItems,
 };

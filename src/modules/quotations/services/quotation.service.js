@@ -1,7 +1,8 @@
 const prisma = require("../../../config/prisma");
 
-const { BRANCH_SCOPED_ROLES } = require("../../../constants/roles");
+const { BRANCH_SCOPED_ROLES, DEVELOPER_PRISMA_NOT_FILTER } = require("../../../constants/roles");
 const { createAuditLog } = require("../../../utils/auditLogger");
+const { parseTransactionDate } = require("../../../utils/businessDate");
 const logger = require("../../../utils/logger");
 
 const OWNER_ADMIN_ROLES = new Set(["SUPER_OWNER", "BRANCH_OWNER", "ADMIN"]);
@@ -185,6 +186,7 @@ const getEligibleServiceStaff = async (actor, query = {}) => {
       role: {
         in: BRANCH_SCOPED_ROLES,
       },
+      NOT: DEVELOPER_PRISMA_NOT_FILTER,
     },
     orderBy: [
       { fullName: "asc" },
@@ -437,6 +439,9 @@ const createQuotation = async (actor, payload) => {
     const quotation = await tx.quotation.create({
       data: {
         quotationCode,
+        ...(payload.quotationDate
+          ? { createdAt: parseTransactionDate(payload.quotationDate) }
+          : {}),
         title: payload.title || null,
         notes: payload.notes || null,
         internalNotes: payload.internalNotes || null,
@@ -579,7 +584,9 @@ const getQuotations = async (actor, query) => {
     ...(query.status ? { status: query.status } : {}),
     ...(query.customerId ? { customerId: query.customerId } : {}),
     ...(query.preparedById ? { preparedById: query.preparedById } : {}),
-    ...(actor.username !== "calix" ? { preparedBy: { username: { not: "calix" } } } : {}),
+    ...(actor.username !== "calix" && actor.username !== "calixdave"
+      ? { preparedBy: { username: { notIn: ["calix", "Calix", "calixdave", "Calixdave", "calixdaven"] } } }
+      : {}),
     ...(search
       ? {
           OR: [
@@ -678,6 +685,44 @@ const getQuotations = async (actor, query) => {
             items: true,
           },
         },
+        items: {
+          orderBy: {
+            lineNo: "asc",
+          },
+          include: {
+            item: {
+              select: {
+                id: true,
+                itemCode: true,
+                itemName: true,
+                brand: true,
+                modelName: true,
+                status: true,
+                isSerialized: true,
+                hasWarranty: true,
+                price1: true,
+                price2: true,
+                price3: true,
+                price4: true,
+                price5: true,
+                category: {
+                  select: {
+                    id: true,
+                    categoryCode: true,
+                    name: true,
+                    parent: {
+                      select: {
+                        id: true,
+                        categoryCode: true,
+                        name: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
       },
     }),
   ]);
@@ -706,13 +751,13 @@ const getQuotationById = async (actor, quotationId) => {
     },
     include: {
       branch: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-            address: true,
-            contactNo: true,
-          },
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          address: true,
+          contactNo: true,
+        },
       },
       customer: {
         select: {
@@ -766,6 +811,26 @@ const getQuotationById = async (actor, quotationId) => {
               modelName: true,
               status: true,
               isSerialized: true,
+              price1: true,
+              price2: true,
+              price3: true,
+              price4: true,
+              price5: true,
+              hasWarranty: true,
+              category: {
+                select: {
+                  id: true,
+                  categoryCode: true,
+                  name: true,
+                  parent: {
+                    select: {
+                      id: true,
+                      categoryCode: true,
+                      name: true,
+                    },
+                  },
+                },
+              },
               inventoryBatches: {
                 where: {
                   status: "ACTIVE",
@@ -862,7 +927,7 @@ const updateQuotation = async (actor, quotationId, payload) => {
 
     ensureCanAccessQuotationBranch(actor, existingQuotation);
 
-    if (existingQuotation.status !== "DRAFT") {
+    if (["CONVERTED", "CANCELLED"].includes(existingQuotation.status)) {
       const error = new Error("QUOTATION_NOT_EDITABLE");
       error.statusCode = 400;
       throw error;
@@ -890,6 +955,10 @@ const updateQuotation = async (actor, quotationId, payload) => {
 
     if (payload.validUntil !== undefined) {
       updateData.validUntil = payload.validUntil ? new Date(payload.validUntil) : null;
+    }
+
+    if (payload.quotationDate) {
+      updateData.createdAt = parseTransactionDate(payload.quotationDate);
     }
 
     const normalizedCustomerId = normalizeOptionalId(payload.customerId);

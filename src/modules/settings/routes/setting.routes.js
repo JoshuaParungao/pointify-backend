@@ -58,6 +58,17 @@ router.get(
   settingController.getInstallmentBasisSettings
 );
 
+router.get(
+  "/business-rules/payment-methods",
+  protect,
+  requireAnyPermission([
+    PERMISSIONS.VIEW_SETTINGS,
+    PERMISSIONS.VIEW_SALES,
+    PERMISSIONS.VIEW_QUOTATIONS,
+  ]),
+  settingController.getPaymentMethodSettings
+);
+
 router.post(
   "/business-rules/installment/test-compute",
   protect,
@@ -105,6 +116,13 @@ router.post(
   protect,
   requirePermission(PERMISSIONS.MANAGE_SETTINGS),
   settingController.resetTransactions
+);
+
+router.post(
+  "/bootstrap-products",
+  protect,
+  requirePermission(PERMISSIONS.MANAGE_SETTINGS),
+  settingController.bootstrapProducts
 );
 
 router.get(

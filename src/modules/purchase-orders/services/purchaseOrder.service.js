@@ -1,6 +1,7 @@
 const prisma = require("../../../config/prisma");
 const AppError = require("../../../utils/appError");
 const { createAuditLog } = require("../../../utils/auditLogger");
+const { parseTransactionDate } = require("../../../utils/businessDate");
 
 const PURCHASE_ORDER_INCLUDE = {
   branch: {
@@ -65,6 +66,10 @@ const PURCHASE_ORDER_INCLUDE = {
           itemName: true,
           status: true,
           branchId: true,
+          isSerialized: true,
+          barcode: true,
+          brand: true,
+          modelName: true,
         },
       },
     },
@@ -78,19 +83,9 @@ const PURCHASE_ORDER_OPERATION_ROLES = new Set([
   "SUPER_OWNER",
   "BRANCH_OWNER",
   "ADMIN",
+  "CASHIER",
+  "TECHNICIAN",
 ]);
-
-const isActorSenior = (actor) => {
-  if (!actor) return false;
-  const classification = String(actor.incentiveClassification || "").toUpperCase();
-  const role = String(actor.role || "").toUpperCase();
-  return (
-    classification === "SENIOR_SALES_AGENT" ||
-    classification === "SENIOR_TECHNICIAN" ||
-    classification.startsWith("SENIOR_") ||
-    role.startsWith("SENIOR_")
-  );
-};
 
 const normalizeOptionalString = (value) => {
   if (value === undefined || value === null) {
@@ -124,10 +119,9 @@ const assertManagePurchaseOrderRole = (actor) => {
     throw new AppError("Authentication required", 401, "AUTHENTICATION_REQUIRED");
   }
 
-  const allowed = PURCHASE_ORDER_OPERATION_ROLES.has(actor.role) || isActorSenior(actor);
-  if (!allowed) {
+  if (!PURCHASE_ORDER_OPERATION_ROLES.has(actor.role)) {
     throw new AppError(
-      "Account restricted: Cashiers and junior technicians cannot manage purchase orders. Only senior staff, admin, and main admin have access.",
+      "You are not allowed to manage purchase orders",
       403,
       "PURCHASE_ORDER_MANAGE_FORBIDDEN"
     );
@@ -139,10 +133,9 @@ const assertViewPurchaseOrderRole = (actor) => {
     throw new AppError("Authentication required", 401, "AUTHENTICATION_REQUIRED");
   }
 
-  const allowed = PURCHASE_ORDER_OPERATION_ROLES.has(actor.role) || isActorSenior(actor);
-  if (!allowed) {
+  if (!PURCHASE_ORDER_OPERATION_ROLES.has(actor.role)) {
     throw new AppError(
-      "Account restricted: Cashiers and junior technicians cannot view purchase orders. Only senior staff, admin, and main admin have access.",
+      "You are not allowed to view purchase orders",
       403,
       "PURCHASE_ORDER_VIEW_FORBIDDEN"
     );
@@ -520,6 +513,38 @@ const assertPurchaseOrderCodeIsUnique = async (
   }
 };
 
+const generateNextPoBatchCode = async (tx, branchId, offset = 0) => {
+  const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  let seq = (await tx.inventoryBatch.count({ where: { branchId } })) + 1 + offset;
+  let batchCode = `BAT-${dateStr}-${String(seq).padStart(4, "0")}`;
+
+  let existing = await tx.inventoryBatch.findUnique({
+    where: {
+      branchId_batchCode: {
+        branchId,
+        batchCode,
+      },
+    },
+    select: { id: true },
+  });
+
+  while (existing) {
+    seq += 1;
+    batchCode = `BAT-${dateStr}-${String(seq).padStart(4, "0")}`;
+    existing = await tx.inventoryBatch.findUnique({
+      where: {
+        branchId_batchCode: {
+          branchId,
+          batchCode,
+        },
+      },
+      select: { id: true },
+    });
+  }
+
+  return batchCode;
+};
+
 const validateAndBuildItems = async (items, branchId, db = prisma) => {
   const builtItems = [];
   let subtotal = 0;
@@ -554,6 +579,7 @@ const validateAndBuildItems = async (items, branchId, db = prisma) => {
           itemName: true,
           status: true,
           branchId: true,
+          isSerialized: true,
         },
       });
 
@@ -587,6 +613,11 @@ const validateAndBuildItems = async (items, branchId, db = prisma) => {
     subtotal = toMoney(subtotal + lineSubtotal);
     totalDiscount = toMoney(totalDiscount + discountAmount);
 
+    let lineBatchCode = itemPayload.batchCode ? String(itemPayload.batchCode).trim() : "";
+    if (!lineBatchCode) {
+      lineBatchCode = await generateNextPoBatchCode(db, branchId, index);
+    }
+
     builtItems.push({
       lineNo: index + 1,
       description: itemPayload.description.trim(),
@@ -595,6 +626,7 @@ const validateAndBuildItems = async (items, branchId, db = prisma) => {
       unitCost,
       discountAmount,
       lineTotal,
+      batchCode: lineBatchCode,
       itemId: item ? item.id : null,
     });
   }
@@ -664,6 +696,7 @@ const createPurchaseOrder = async (payload, actor) => {
       data: {
         poCode,
         status: "DRAFT",
+        orderDate: payload.orderDate ? parseTransactionDate(payload.orderDate) : new Date(),
         expectedDate: normalizeOptionalDate(payload.expectedDate),
         supplierNameSnapshot: supplier.name,
         supplierContactSnapshot:
@@ -903,6 +936,12 @@ const updatePurchaseOrderById = async (purchaseOrderId, payload, actor) => {
       );
     }
 
+    if (payload.orderDate !== undefined) {
+      updateData.orderDate = payload.orderDate
+        ? parseTransactionDate(payload.orderDate)
+        : existingPurchaseOrder.orderDate;
+    }
+
     if (payload.expectedDate !== undefined) {
       updateData.expectedDate = normalizeOptionalDate(payload.expectedDate);
     }
@@ -1113,6 +1152,53 @@ const updatePurchaseOrderStatusById = async (purchaseOrderId, payload, actor) =>
   });
 };
 
+const getPreSaleBatches = async (actor, query = {}) => {
+  const branchId = resolveBranchFilter(actor, query.branchId);
+  const where = {
+    ...(branchId ? { branchId } : {}),
+    ...(query.itemId ? { itemId: query.itemId } : {}),
+    OR: [
+      { remarks: { contains: "POS Pre-sale", mode: "insensitive" } },
+      { remarks: { contains: "Pre-sale", mode: "insensitive" } },
+      { remarks: { contains: "POS checkout", mode: "insensitive" } },
+    ],
+  };
+
+  const batches = await prisma.inventoryBatch.findMany({
+    where,
+    include: {
+      item: {
+        select: {
+          id: true,
+          itemCode: true,
+          itemName: true,
+        },
+      },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 50,
+  });
+
+  return batches.map((batch) => {
+    const preSoldQty = Math.max(
+      0,
+      Number(batch.quantityIn || 0) - Number(batch.quantityAvailable || 0)
+    );
+    return {
+      id: batch.id,
+      batchCode: batch.batchCode,
+      itemId: batch.itemId,
+      itemCode: batch.item?.itemCode,
+      itemName: batch.item?.itemName,
+      quantityIn: Number(batch.quantityIn || 0),
+      quantityAvailable: Number(batch.quantityAvailable || 0),
+      preSoldQty,
+      remarks: batch.remarks,
+      createdAt: batch.createdAt,
+    };
+  });
+};
+
 module.exports = {
   PURCHASE_ORDER_INCLUDE,
   createPurchaseOrder,
@@ -1120,4 +1206,5 @@ module.exports = {
   getPurchaseOrderById,
   updatePurchaseOrderById,
   updatePurchaseOrderStatusById,
+  getPreSaleBatches,
 };

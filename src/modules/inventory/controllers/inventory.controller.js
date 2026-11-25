@@ -1,16 +1,9 @@
 const inventoryService = require("../services/inventory.service");
+const { sendSuccess } = require("../../../utils/apiResponse");
 const {
   sanitizeBatchesCostForActor,
   sanitizeMovementsCostForActor,
 } = require("../utils/inventoryVisibilityPolicy");
-
-const sendSuccess = (res, message, data) => {
-  return res.status(200).json({
-    success: true,
-    message,
-    data,
-  });
-};
 
 const handleInventoryQueryError = (error, res, next) => {
   const knownErrors = {
@@ -36,7 +29,10 @@ const getOverview = async (req, res, next) => {
   try {
     const result = await inventoryService.getInventoryOverview(req.user, req.query);
 
-    return sendSuccess(res, "Inventory overview fetched successfully", result);
+    return sendSuccess(res, {
+      message: "Inventory overview fetched successfully",
+      data: result,
+    });
   } catch (error) {
     return handleInventoryQueryError(error, res, next);
   }
@@ -48,7 +44,10 @@ const getBatches = async (req, res, next) => {
 
     result.data = sanitizeBatchesCostForActor(result.data, req.user);
 
-    return sendSuccess(res, "Inventory batches fetched successfully", result);
+    return sendSuccess(res, {
+      message: "Inventory batches fetched successfully",
+      data: result,
+    });
   } catch (error) {
     return handleInventoryQueryError(error, res, next);
   }
@@ -58,7 +57,10 @@ const getSerials = async (req, res, next) => {
   try {
     const result = await inventoryService.getInventorySerials(req.user, req.query);
 
-    return sendSuccess(res, "Inventory serials fetched successfully", result);
+    return sendSuccess(res, {
+      message: "Inventory serials fetched successfully",
+      data: result,
+    });
   } catch (error) {
     return handleInventoryQueryError(error, res, next);
   }
@@ -165,6 +167,36 @@ const updateSerialBatch = async (req, res, next) => {
   }
 };
 
+const updateBatchCode = async (req, res, next) => {
+  try {
+    const result = await inventoryService.updateBatchCode(
+      req.user,
+      req.params.id,
+      req.body
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Batch code updated successfully",
+      data: result,
+    });
+  } catch (error) {
+    return handleInventoryMutationError(error, res, next);
+  }
+};
+
+const createBatch = async (req, res, next) => {
+  try {
+    const result = await inventoryService.createBatch(req.user, req.body);
+    return res.status(201).json({
+      success: true,
+      message: "Batch created successfully",
+      data: result,
+    });
+  } catch (error) {
+    return handleInventoryMutationError(error, res, next);
+  }
+};
 
 const getMovements = async (req, res, next) => {
   try {
@@ -172,7 +204,10 @@ const getMovements = async (req, res, next) => {
 
     result.data = sanitizeMovementsCostForActor(result.data, req.user);
 
-    return sendSuccess(res, "Inventory movements fetched successfully", result);
+    return sendSuccess(res, {
+      message: "Inventory movements fetched successfully",
+      data: result,
+    });
   } catch (error) {
     return handleInventoryQueryError(error, res, next);
   }
@@ -187,4 +222,6 @@ module.exports = {
   createAdjustment,
   updateSerialStatus,
   updateSerialBatch,
+  updateBatchCode,
+  createBatch,
 };

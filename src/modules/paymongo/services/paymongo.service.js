@@ -15,7 +15,7 @@ function getAuthHeader() {
  */
 async function createCheckoutSession({
   amount, // in PHP (e.g. 250.50)
-  description = "Pointify POS Transaction",
+  description = "POSynctify POS Transaction",
   referenceNumber,
   customerName,
   customerEmail,
@@ -80,7 +80,7 @@ async function createCheckoutSession({
           success_url: successUrl || undefined,
           cancel_url: cancelUrl || undefined,
           metadata: {
-            source: "pointify_pos",
+            source: "posynctify_pos",
             ...(referenceNumber ? { referenceNumber: String(referenceNumber) } : {}),
             ...(metadata && typeof metadata === "object" ? metadata : {}),
           },
@@ -192,7 +192,7 @@ async function createPaymentLink({ amount, description, remarks }) {
       data: {
         attributes: {
           amount: amountInCentavos,
-          description: String(description || "Pointify Payment").slice(0, 255),
+          description: String(description || "POSynctify Payment").slice(0, 255),
           remarks: remarks || "POS-SALE",
         },
       },

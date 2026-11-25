@@ -342,7 +342,7 @@ const accountConfigBody = z
           "pcBuildRatePercent",
 
         label:
-          "Bundle / Package Incentive",
+          "PC Build Incentive",
       },
     ];
 

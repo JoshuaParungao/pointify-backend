@@ -156,17 +156,12 @@ const updateProfile = async (actor, payload) => {
     payload.username !== undefined
       ? String(payload.username).trim().toLowerCase()
       : existingUser.username;
-  const isLegacySeedEmail =
-    existingUser.email === "calix@arunafeltz.local" ||
-    existingUser.email === "calix@pointify.local";
   const nextEmail =
     payload.email !== undefined
       ? payload.email
         ? String(payload.email).trim().toLowerCase()
         : null
-      : isLegacySeedEmail && nextUsername !== "calix"
-        ? null
-        : existingUser.email;
+      : existingUser.email;
 
   if (nextUsername !== existingUser.username) {
     const conflict = await prisma.user.findFirst({
@@ -224,7 +219,36 @@ const updateProfile = async (actor, payload) => {
   return updatedUser;
 };
 
+const verifyUserPassword = async (actor, password) => {
+  if (!password) {
+    const error = new Error("PASSWORD_REQUIRED");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: actor.id },
+    select: { id: true, passwordHash: true },
+  });
+
+  if (!user || !user.passwordHash) {
+    const error = new Error("INVALID_CREDENTIALS");
+    error.statusCode = 401;
+    throw error;
+  }
+
+  const isMatch = await bcrypt.compare(password, user.passwordHash);
+  if (!isMatch) {
+    const error = new Error("INVALID_PASSWORD");
+    error.statusCode = 401;
+    throw error;
+  }
+
+  return true;
+};
+
 module.exports = {
   login,
   updateProfile,
+  verifyUserPassword,
 };

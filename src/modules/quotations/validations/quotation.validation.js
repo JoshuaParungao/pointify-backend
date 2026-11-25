@@ -46,6 +46,7 @@ const createQuotationSchema = z.object({
     branchId: z.string().trim().min(1).optional(),
     customerId: z.string().trim().min(1).optional(),
     serviceDoneById: optionalNullableId,
+    quotationDate: z.string().trim().min(1).optional().nullable().or(z.literal("")),
     title: optionalString,
     notes: optionalString,
     internalNotes: optionalString,
@@ -61,8 +62,9 @@ const updateQuotationSchema = z.object({
     id: z.string().trim().min(1, "Quotation ID is required").max(191),
   }),
   body: z.object({
-    customerId: z.string().trim().min(1).optional().or(z.literal("")),
+    customerId: optionalNullableId,
     serviceDoneById: optionalNullableId,
+    quotationDate: z.string().trim().min(1).optional().nullable().or(z.literal("")),
     title: optionalString,
     notes: optionalString,
     internalNotes: optionalString,

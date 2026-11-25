@@ -125,7 +125,7 @@ function cleanText(val) {
 }
 
 /**
- * Strip warranty suffix or serial number suffix added by Pointify PDF generator
+ * Strip warranty suffix or serial number suffix added by POSynctify PDF generator
  * e.g. "Biogesic 500mg Tablet | 7 Days Warranty" -> "Biogesic 500mg Tablet"
  */
 function stripItemSuffixes(desc) {
@@ -208,7 +208,7 @@ function isNoiseOrHeaderLine(line) {
     lower.startsWith("total amount") ||
     lower.startsWith("grand total") ||
     lower.startsWith("subtotal") ||
-    lower.startsWith("pointify business management")
+    lower.startsWith("posynctify business management")
   ) {
     return true;
   }
@@ -338,7 +338,7 @@ function extractQuotationDetails(rawText, originalFilename = "") {
           potentialName.length >= 2 &&
           potentialName !== "-" &&
           !potentialName.toLowerCase().includes("quotation") &&
-          !potentialName.toLowerCase().includes("pointify")
+          !potentialName.toLowerCase().includes("posynctify")
         ) {
           customer.name = potentialName;
         }
@@ -393,10 +393,10 @@ function extractQuotationDetails(rawText, originalFilename = "") {
     const isInstallmentTerms = /installment|\bar\b/i.test(documentInfo.terms || "");
 
     // 5. Line Items Parsing
-    // Pattern A1: Pointify 7-column single-line row:
+    // Pattern A1: POSynctify 7-column single-line row:
     // "[ItemCode] [Description] [Qty] [RegPrice] [RegAmount] [CashPromo] [CashAmount]"
-    const pointifySingleRowRegex = /^(?:([A-Za-z0-9\-_]+|-)\s+)?(.+?)\s+(\d+(?:\.\d+)?)\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})$/;
-    const pSingleMatch = line.match(pointifySingleRowRegex);
+    const posynctifySingleRowRegex = /^(?:([A-Za-z0-9\-_]+|-)\s+)?(.+?)\s+(\d+(?:\.\d+)?)\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})$/;
+    const pSingleMatch = line.match(posynctifySingleRowRegex);
     if (pSingleMatch) {
       const code = pSingleMatch[1] && pSingleMatch[1] !== "-" ? pSingleMatch[1].trim() : "";
       const rawDesc = cleanText(pSingleMatch[2]);
@@ -424,10 +424,10 @@ function extractQuotationDetails(rawText, originalFilename = "") {
       }
     }
 
-    // Pattern A2: Pointify multi-line wrapped row where current line is ONLY numbers:
+    // Pattern A2: POSynctify multi-line wrapped row where current line is ONLY numbers:
     // "[Qty] [RegPrice] [RegAmount] [CashPromo] [CashAmount]"
-    const pointifyNumbersOnlyRegex = /^(\d+(?:\.\d+)?)\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})$/;
-    const pNumbersMatch = line.match(pointifyNumbersOnlyRegex);
+    const posynctifyNumbersOnlyRegex = /^(\d+(?:\.\d+)?)\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})$/;
+    const pNumbersMatch = line.match(posynctifyNumbersOnlyRegex);
     if (pNumbersMatch && pendingDescParts.length > 0) {
       const combinedDesc = cleanText(pendingDescParts.join(" "));
       const qty = parseFloat(pNumbersMatch[1]) || 1;
@@ -591,12 +591,12 @@ function extractQuotationDetails(rawText, originalFilename = "") {
 }
 
 /**
- * Match extracted items, quotation number, and customer with Pointify database records
+ * Match extracted items, quotation number, and customer with POSynctify database records
  */
 async function matchWithDatabase(parsedData, branchId) {
   let { documentInfo, customer, financials, items } = parsedData;
 
-  // 0. If quotationNumber matches an existing Pointify Quotation in DB, cross-check & enrich!
+  // 0. If quotationNumber matches an existing POSynctify Quotation in DB, cross-check & enrich!
   let matchedQuotation = null;
   if (documentInfo.quotationNumber) {
     try {

@@ -108,6 +108,8 @@ const stockInSchema = z.object({
     supplierName: optionalString,
     referenceNo: optionalString,
     remarks: optionalString,
+    transactionDate: z.string().trim().min(1).optional().nullable().or(z.literal("")),
+    movementDate: z.string().trim().min(1).optional().nullable().or(z.literal("")),
     expiryDate: z.string().datetime().optional(),
     serialNumbers: z.array(z.string().trim().min(1)).optional(),
   }),
@@ -122,6 +124,8 @@ const adjustmentSchema = z.object({
     quantity: positiveNumber,
     referenceNo: optionalString,
     remarks: optionalString,
+    transactionDate: z.string().trim().min(1).optional().nullable().or(z.literal("")),
+    movementDate: z.string().trim().min(1).optional().nullable().or(z.literal("")),
     serialNumbers: z.array(z.string().trim().min(1)).optional(),
   }),
 });
@@ -149,6 +153,27 @@ const serialBatchUpdateSchema = z.object({
   }),
 });
 
+const batchCodeUpdateSchema = z.object({
+  params: z.object({
+    id: z.string().trim().min(1, "Batch ID is required"),
+  }),
+  body: z.object({
+    batchCode: z.string().trim().min(1, "Batch code cannot be empty"),
+    supplierName: optionalString,
+    remarks: optionalString,
+  }),
+});
+
+const createBatchSchema = z.object({
+  body: z.object({
+    itemId: z.string().trim().min(1, "Item ID is required"),
+    batchCode: z.string().trim().min(1, "Batch code cannot be empty"),
+    branchId: optionalString,
+    supplierName: optionalString,
+    remarks: optionalString,
+  }),
+});
+
 module.exports = {
   inventoryOverviewSchema,
   inventoryBatchesSchema,
@@ -158,4 +183,6 @@ module.exports = {
   adjustmentSchema,
   serialStatusUpdateSchema,
   serialBatchUpdateSchema,
+  batchCodeUpdateSchema,
+  createBatchSchema,
 };

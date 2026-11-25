@@ -1,5 +1,6 @@
 const prisma = require("../../../config/prisma");
 const { createAuditLog } = require("../../../utils/auditLogger");
+const { parseTransactionDate } = require("../../../utils/businessDate");
 
 const CREATE_WARRANTY_CLAIM_ROLES = new Set([
   "SUPER_OWNER",
@@ -520,6 +521,10 @@ const createWarrantyClaim = async (actor, payload) => {
       data: {
         claimCode,
         status: "IN",
+        receivedAt: parseTransactionDate(
+          payload.receivedAt || payload.transactionDate,
+          new Date()
+        ),
         issueDescription: payload.issueDescription,
         customerComplaint: payload.customerComplaint || null,
         diagnosis: payload.diagnosis || null,
@@ -874,6 +879,23 @@ const releaseWarrantyClaim = async (actor, warrantyClaimId, payload) => {
       const error = new Error("WARRANTY_CLAIM_NOT_READY_FOR_RELEASE");
       error.statusCode = 400;
       throw error;
+    }
+
+    // Safety guard: Ensure customer has returned any borrowed Service Loaner Unit first!
+    if (warrantyClaim.remarks && warrantyClaim.remarks.includes("[LOANER_DATA]:")) {
+      try {
+        const jsonStr = warrantyClaim.remarks.split("[LOANER_DATA]:")[1]?.split("[/LOANER_DATA]")[0];
+        if (jsonStr) {
+          const loanerData = JSON.parse(jsonStr);
+          if (loanerData?.status === "ON_LOAN") {
+            const error = new Error("Cannot release claim: Customer still has an active Service Loaner Unit. Please accept the loaner return first.");
+            error.statusCode = 400;
+            throw error;
+          }
+        }
+      } catch (err) {
+        if (err.statusCode) throw err;
+      }
     }
 
     const updateResult = await tx.warrantyClaim.updateMany({
@@ -1474,6 +1496,32 @@ const issueLoanerUnit = async (actor, warrantyClaimId, payload) => {
       loanRemarks: payload.loanRemarks || null,
     };
 
+    // Reserve the loaner serial in inventory so it cannot be sold in POS while on loan
+    let loanerSerialRecord = null;
+    if (payload.loanerSerialId) {
+      loanerSerialRecord = await tx.itemSerial.findUnique({
+        where: { id: payload.loanerSerialId },
+      });
+    } else if (payload.loanerSerialNumber) {
+      loanerSerialRecord = await tx.itemSerial.findFirst({
+        where: {
+          branchId: warrantyClaim.branchId,
+          serialNumber: payload.loanerSerialNumber.trim(),
+        },
+      });
+    }
+
+    if (loanerSerialRecord) {
+      await tx.itemSerial.update({
+        where: { id: loanerSerialRecord.id },
+        data: {
+          status: "RESERVED",
+          updatedById: actor.id,
+          remarks: `On Service Loan to client for Claim ${warrantyClaim.claimCode}`.trim(),
+        },
+      });
+    }
+
     const cleanPrevRemarks = (warrantyClaim.remarks || "")
       .replace(/\[LOANER_DATA\][\s\S]*?\[\/LOANER_DATA\]/g, "")
       .trim();
@@ -1564,6 +1612,40 @@ const returnLoanerUnit = async (actor, warrantyClaimId, payload) => {
       },
       include: WARRANTY_CLAIM_INCLUDE,
     });
+
+    // Update loaner serial in inventory:
+    // If returned in good condition -> AVAILABLE
+    // If returned damaged/defective -> DAMAGED (so it immediately becomes eligible for Store B.O. / Supplier Returns!)
+    const isDamaged =
+      returnCondition.toLowerCase().includes("damaged") ||
+      returnCondition.toLowerCase().includes("defect") ||
+      returnCondition.toLowerCase().includes("broken") ||
+      returnCondition.toLowerCase().includes("faulty");
+
+    let loanerSerialRecord = null;
+    if (existingLoaner?.loanerSerialId) {
+      loanerSerialRecord = await tx.itemSerial.findUnique({
+        where: { id: existingLoaner.loanerSerialId },
+      });
+    } else if (existingLoaner?.loanerSerialNumber) {
+      loanerSerialRecord = await tx.itemSerial.findFirst({
+        where: {
+          branchId: warrantyClaim.branchId,
+          serialNumber: existingLoaner.loanerSerialNumber.trim(),
+        },
+      });
+    }
+
+    if (loanerSerialRecord) {
+      await tx.itemSerial.update({
+        where: { id: loanerSerialRecord.id },
+        data: {
+          status: isDamaged ? "DAMAGED" : "AVAILABLE",
+          updatedById: actor.id,
+          remarks: `Returned from Service Loaner (Claim ${warrantyClaim.claimCode}): ${returnCondition}${payload.remarks ? " - " + payload.remarks : ""}`.trim(),
+        },
+      });
+    }
 
     await createAuditLog(
       {

@@ -1,4 +1,5 @@
 const express = require("express");
+const multer = require("multer");
 
 const quotationController = require("../controllers/quotation.controller");
 const validate = require("../../../middlewares/validate.middleware");
@@ -56,18 +57,15 @@ router.patch(
   quotationController.updateQuotation
 );
 
-const multer = require("multer");
-
 const upload = multer({
-  storage: multer.memoryStorage(),
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB max
+    fileSize: 10 * 1024 * 1024,
   },
   fileFilter: (req, file, cb) => {
     if (file.mimetype === "application/pdf" || file.originalname.toLowerCase().endsWith(".pdf")) {
       cb(null, true);
     } else {
-      cb(new Error("ONLY_PDF_ALLOWED: Only PDF quotation documents are supported."));
+      cb(new Error("ONLY_PDF_ALLOWED"), false);
     }
   },
 });

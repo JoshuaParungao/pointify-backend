@@ -19,6 +19,8 @@ const immediatePaymentMethod = z.enum([
   "CASH",
   "GCASH",
   "BANK_TRANSFER",
+  "CARD",
+  "CHEQUE",
   "OTHER",
 ]);
 const receivableProvider = z.enum([
@@ -30,6 +32,7 @@ const receivableProvider = z.enum([
   "KYRO",
   "OTHER_FINANCING",
   "IN_HOUSE_INSTALLMENT",
+  "CHEQUE",
 ]);
 const installmentTerm = z.enum([
   "CASH_PROMO",
@@ -89,6 +92,8 @@ const createServiceJobSchema = z.object({
     branchId: z.string().trim().min(1).optional(),
     customerId: z.string().trim().min(1).optional(),
     assignedTechnicianId: z.string().trim().min(1).optional(),
+    receivedAt: z.string().trim().min(1).optional().nullable().or(z.literal("")),
+    transactionDate: z.string().trim().min(1).optional().nullable().or(z.literal("")),
     repairType,
 
     jobTitle: z
@@ -268,7 +273,7 @@ const createServicePaymentSchema = z.object({
       amount: nonNegativeMoney.optional(),
       referenceNo: optionalString(180),
       remarks: optionalString(1000),
-      paidAt: z.coerce.date().optional(),
+      paidAt: z.union([z.string().trim().min(1), z.date()]).optional().nullable().or(z.literal("")),
       receivable: receivableSchema.optional(),
       idempotencyKey: z.string().uuid().optional(),
     })

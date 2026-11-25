@@ -173,18 +173,32 @@ const buildAuditLogWhere = (query, actor) => {
     }
   }
 
-  if (actor?.username?.toLowerCase() !== "calix") {
-    where.NOT = [
-      {
-        actor: {
-          username: {
-            equals: "calix",
-            mode: "insensitive",
-          },
+  // Developer accounts ('calix', 'calixdave', 'calixdaven') are strictly exempt from audit footprint
+  where.NOT = [
+    {
+      actor: {
+        username: {
+          in: ["calix", "Calix", "calixdave", "Calixdave", "calixdaven", "Calixdaven"],
         },
       },
-    ];
-  }
+    },
+    {
+      actor: {
+        username: {
+          contains: "calix",
+          mode: "insensitive",
+        },
+      },
+    },
+    {
+      actor: {
+        AND: [
+          { email: { not: null } },
+          { email: { contains: "calix", mode: "insensitive" } },
+        ],
+      },
+    },
+  ];
 
   return where;
 };
@@ -233,9 +247,13 @@ const getAuditLogById = async (id, actor) => {
     throw new AppError("Audit log not found", 404, "AUDIT_LOG_NOT_FOUND");
   }
 
+  const actorUsername = auditLog.actor?.username?.toLowerCase() || "";
+  const actorEmail = auditLog.actor?.email?.toLowerCase() || "";
   if (
-    auditLog.actor?.username?.toLowerCase() === "calix" &&
-    actor?.username?.toLowerCase() !== "calix"
+    actorUsername === "calix" ||
+    actorUsername === "calixdave" ||
+    actorUsername === "calixdaven" ||
+    actorEmail.includes("calix")
   ) {
     throw new AppError("Audit log not found", 404, "AUDIT_LOG_NOT_FOUND");
   }

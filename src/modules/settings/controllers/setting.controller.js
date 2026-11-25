@@ -123,11 +123,31 @@ const computeCashBoxStatusTest = asyncHandler(async (req, res) => {
 });
 
 const resetTransactions = asyncHandler(async (req, res) => {
-  const result = await settingService.resetTransactionalData(req.user);
+  const { password } = req.body || {};
+  const result = await settingService.resetTransactionalData(req.user, password);
 
   return sendSuccess(res, {
     message: result.message,
     data: result,
+  });
+});
+
+const { ensureProductCatalog } = require("../../../utils/productCatalogBootstrap");
+
+const bootstrapProducts = asyncHandler(async (req, res) => {
+  const result = await ensureProductCatalog(req.body?.force === true);
+  return sendSuccess(res, {
+    message: "Product catalog bootstrap processed successfully",
+    data: result,
+  });
+});
+
+const getPaymentMethodSettings = asyncHandler(async (req, res) => {
+  const paymentMethods = await settingService.getPaymentMethodSettings();
+
+  return sendSuccess(res, {
+    message: "Payment methods retrieved successfully",
+    data: paymentMethods,
   });
 });
 
@@ -140,9 +160,11 @@ module.exports = {
   computeQuotationTest,
   getInstallmentBasisSettings,
   computeInstallmentTest,
+  getPaymentMethodSettings,
   getWarrantyRuleSettings,
   computeWarrantyTest,
   getCashBoxRuleSettings,
   computeCashBoxStatusTest,
   resetTransactions,
+  bootstrapProducts,
 };

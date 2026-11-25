@@ -51,21 +51,12 @@ const updateItemById = asyncHandler(async (req, res) => {
   });
 });
 
-const deleteItemById = asyncHandler(async (req, res) => {
-  const result = await itemService.deleteItemById(req.params.id, req.user);
+const restoreFromAudit = asyncHandler(async (req, res) => {
+  const { restoreUserEditsFromAuditLog } = require("../../../utils/restoreUserEdits");
+  const result = await restoreUserEditsFromAuditLog();
 
   return sendSuccess(res, {
-    message: result.message || "Item deleted successfully",
-    data: result,
-  });
-});
-
-const clearAllItems = asyncHandler(async (req, res) => {
-  const requestedBranchId = req.query.branchId || req.body?.branchId;
-  const result = await itemService.clearAllItems(req.user, requestedBranchId);
-
-  return sendSuccess(res, {
-    message: result.message || "All items cleared successfully",
+    message: `Restored ${result.restoredCount} items from audit trail`,
     data: result,
   });
 });
@@ -75,6 +66,5 @@ module.exports = {
   listItems,
   getItemById,
   updateItemById,
-  deleteItemById,
-  clearAllItems,
+  restoreFromAudit,
 };

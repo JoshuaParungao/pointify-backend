@@ -43,7 +43,16 @@ const purchaseOrderItemSchema = z.object({
   quantity: quantitySchema,
   unitCost: moneySchema("Unit cost"),
   discountAmount: moneySchema("Discount amount").optional().default(0),
+  batchCode: optionalString.or(z.literal("")),
 });
+
+const optionalDateSchema = z
+  .string()
+  .trim()
+  .min(1, "Date cannot be empty")
+  .optional()
+  .nullable()
+  .or(z.literal(""));
 
 const createPurchaseOrderSchema = z.object({
   body: z
@@ -54,6 +63,7 @@ const createPurchaseOrderSchema = z.object({
       supplierName: z.string().trim().min(1, "Supplier name cannot be empty").optional(),
       supplierContact: optionalString,
       supplierAddress: optionalString,
+      orderDate: optionalDateSchema,
       expectedDate: z.string().trim().min(1, "Expected date cannot be empty").optional().nullable(),
       notes: optionalString,
       internalNotes: optionalString,
@@ -102,6 +112,7 @@ const updatePurchaseOrderSchema = z.object({
     supplierName: z.string().trim().min(1, "Supplier name cannot be empty").optional(),
     supplierContact: optionalString,
     supplierAddress: optionalString,
+    orderDate: optionalDateSchema,
     expectedDate: z.string().trim().min(1, "Expected date cannot be empty").optional().nullable(),
     notes: optionalString,
     internalNotes: optionalString,

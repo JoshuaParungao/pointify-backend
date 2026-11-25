@@ -18,7 +18,7 @@ const handleSaleError = (error, res, next) => {
     QUOTATION_TOTAL_MISMATCH: [400, "Approved quotation totals are inconsistent and cannot be converted."],
     ITEM_NOT_FOUND: [404, "Item not found for this branch."],
     PRICE_TIER_REQUIRED: [400, "Price tier is required for inventory item."],
-    STAFF_CUSTOM_PRICE_NOT_ALLOWED: [403, "Account restricted: Staff cannot set custom price for inventory items."],
+    STAFF_CUSTOM_PRICE_NOT_ALLOWED: [403, "Staff cannot set custom price for inventory items."],
     DESCRIPTION_REQUIRED: [400, "Description is required for custom sale line."],
     UNIT_PRICE_REQUIRED: [400, "Unit price is required for custom sale line."],
     INVALID_MARKUP_PERCENT: [400, "Mark up percentage must be at least 0 and less than 100."],
@@ -40,6 +40,11 @@ const handleSaleError = (error, res, next) => {
     SERIAL_REQUIRED: [400, "Serial is required for serialized item."],
     SERIAL_NOT_FOUND: [404, "Serial not found for this item and branch."],
     SERIAL_NOT_AVAILABLE: [400, "Serial is not available."],
+    NEW_SERIAL_REQUIRED: [400, "New serial number is required."],
+    SALE_ITEM_NOT_FOUND: [404, "Sale item not found."],
+    ITEM_IS_NOT_SERIALIZED: [400, "This item is not serialized."],
+    SERIAL_ALREADY_ASSIGNED: [400, "The serial number is already assigned to this sale item."],
+    NEW_SERIAL_ALREADY_SOLD: [400, "The specified serial number is already marked as sold on another sale."],
     SERIAL_BATCH_REQUIRED: [400, "Serialized item must be linked to a batch."],
     SERIAL_BATCH_MISMATCH: [400, "Selected batch does not match the serial batch."],
     SERIALIZED_QUANTITY_MUST_BE_ONE: [400, "Serialized item quantity must be 1 per sale line."],
@@ -119,6 +124,30 @@ const createSale = async (req, res, next) => {
     return res.status(201).json({
       success: true,
       message: "Sale created successfully",
+      data: sale,
+    });
+  } catch (error) {
+    return handleSaleError(error, res, next);
+  }
+};
+
+const syncOfflineSale = async (req, res, next) => {
+  try {
+    const payload = {
+      ...req.body,
+      idempotencyKey: req.body.idempotencyKey || req.body.clientSaleId,
+      saleDate: req.body.offlineCreatedAt || req.body.saleDate,
+      remarks: [
+        req.body.remarks,
+        req.body.offlineReceiptCode ? `[Offline Receipt: ${req.body.offlineReceiptCode}]` : null,
+      ].filter(Boolean).join(" | "),
+    };
+
+    const sale = await saleService.createSale(req.user, payload);
+
+    return res.status(201).json({
+      success: true,
+      message: "Offline sale synced successfully",
       data: sale,
     });
   } catch (error) {
@@ -227,12 +256,32 @@ const createSaleReturn = async (req, res, next) => {
   }
 };
 
+const swapSaleSerial = async (req, res, next) => {
+  try {
+    const result = await saleService.swapSaleSerial(
+      req.user,
+      req.params.id,
+      req.body
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Sale serial number swapped successfully",
+      data: result,
+    });
+  } catch (error) {
+    return handleSaleError(error, res, next);
+  }
+};
+
 module.exports = {
   createSale,
+  syncOfflineSale,
   appendSaleItems,
   createSaleReturn,
   getSales,
   getSaleById,
   createCreditAccountFromSale,
   cancelSale,
+  swapSaleSerial,
 };

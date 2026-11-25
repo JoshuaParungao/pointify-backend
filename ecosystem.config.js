@@ -1,7 +1,7 @@
 module.exports = {
   apps: [
     {
-      name: "pointify-backend",
+      name: "posynctify-backend",
       script: "src/server.js",
       instances: 2,
       exec_mode: "cluster",

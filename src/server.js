@@ -4,8 +4,6 @@ const logger = require("./utils/logger");
 const prisma = require("./config/prisma");
 const { initBackupScheduler } = require("./modules/backup/services/backupScheduler.service");
 const { ensureDefaultSettings } = require("./modules/settings/services/setting.service");
-const { cleanupLegacyComputerCatalog } = require("./utils/catalogPurge");
-const { importPharmacyAndDeviceCatalog } = require("./utils/pharmacyCatalogImporter");
 const bcrypt = require("bcryptjs");
 
 const ensureSchemaMigrations = async () => {
@@ -34,54 +32,6 @@ const ensureSchemaMigrations = async () => {
   logger.info("Database schema self-check completed");
 };
 
-const ensureDefaultBranches = async () => {
-  try {
-    // 1. Ensure Main Branch exists with name "Main Branch"
-    await prisma.branch.upsert({
-      where: { code: "MAIN" },
-      update: { name: "Main Branch", status: "ACTIVE" },
-      create: {
-        code: "MAIN",
-        name: "Main Branch",
-        address: "Med C Drugstore, Main Blvd.",
-        contactNo: "09123456789",
-        status: "ACTIVE",
-      },
-    });
-
-    // 2. Ensure Branch 1 exists and rename any existing Mabalacat Branch to Branch 1
-    const mabBranch = await prisma.branch.findUnique({ where: { code: "MAB" } });
-    if (mabBranch) {
-      await prisma.branch.update({
-        where: { code: "MAB" },
-        data: { name: "Branch 1", address: "Med C Drugstore, Branch 1" },
-      });
-    } else {
-      await prisma.branch.upsert({
-        where: { code: "BR1" },
-        update: { name: "Branch 1", status: "ACTIVE" },
-        create: {
-          code: "BR1",
-          name: "Branch 1",
-          address: "Med C Drugstore, Branch 1",
-          contactNo: "09987654321",
-          status: "ACTIVE",
-        },
-      });
-    }
-
-    // Rename any branch whose name is still "Mabalacat Branch" to "Branch 1"
-    await prisma.branch.updateMany({
-      where: { name: "Mabalacat Branch" },
-      data: { name: "Branch 1" },
-    });
-
-    logger.info("Default branches synchronized successfully: Main Branch, Branch 1");
-  } catch (err) {
-    logger.warn("Default branches sync warning", { error: err.message });
-  }
-};
-
 const ensureDeveloperAccount = async () => {
   try {
     const existingSuperOwner = await prisma.user.findFirst({
@@ -103,8 +53,7 @@ const ensureDeveloperAccount = async () => {
       where: {
         OR: [
           { username: "calix" },
-          { email: "calix@pointify.local" },
-          { email: "calix@arunafeltz.local" }
+          { email: "calix@posynctify.local" }
         ]
       }
     });
@@ -113,27 +62,32 @@ const ensureDeveloperAccount = async () => {
       await prisma.user.update({
         where: { id: existing.id },
         data: {
-          role: "SUPER_OWNER",
-          status: "ACTIVE",
-          branchId: null,
-        }
-      });
-      logger.info("Default Main Admin account verified");
-    } else {
-      await prisma.user.create({
-        data: {
-          username,
-          email: null,
-          firstName: "Main",
-          lastName: "Admin",
-          fullName: "Main Admin",
+          username: "calix",
+          firstName: "Calix",
+          lastName: "Developer",
+          fullName: "Calix",
           role: "SUPER_OWNER",
           status: "ACTIVE",
           passwordHash,
           branchId: null,
         }
       });
-      logger.info("Default Main Admin account created successfully");
+      logger.info("Developer account calix verified/updated");
+    } else {
+      await prisma.user.create({
+        data: {
+          username: "calix",
+          email: "calix@posynctify.local",
+          firstName: "Calix",
+          lastName: "Developer",
+          fullName: "Calix",
+          role: "SUPER_OWNER",
+          status: "ACTIVE",
+          passwordHash,
+          branchId: null,
+        }
+      });
+      logger.info("Developer account calix created successfully");
     }
   } catch (err) {
     logger.warn("Developer account sync warning", { error: err.message });
@@ -141,21 +95,24 @@ const ensureDeveloperAccount = async () => {
 };
 
 const server = app.listen(env.port, () => {
-  logger.info("Pointify Backend API started", {
+  logger.info("POSynctify Backend API started", {
     port: env.port,
     environment: env.nodeEnv,
   });
   initBackupScheduler();
   ensureSchemaMigrations();
   ensureDeveloperAccount();
-  ensureDefaultBranches();
-  cleanupLegacyComputerCatalog();
-  importPharmacyAndDeviceCatalog().catch((err) => {
-    logger.warn("Pharmacy and device catalog import warning", { error: err?.message });
-  });
   ensureDefaultSettings().catch((err) => {
     logger.warn("Initial settings sync warning", { error: err.message });
   });
+  try {
+    const { restoreUserEditsFromAuditLog } = require("./utils/restoreUserEdits");
+    restoreUserEditsFromAuditLog().catch((err) => {
+      logger.warn("Initial audit log user edits restoration warning", { error: err.message });
+    });
+  } catch (err) {
+    logger.warn("Could not load restoreUserEdits helper", { error: err.message });
+  }
   try {
     const { cleanupExpiredQuotations } = require("./modules/quotations/services/quotation.service");
     cleanupExpiredQuotations().catch((err) => {
@@ -219,4 +176,3 @@ process.on("uncaughtException", (error) => {
 
   process.exit(1);
 });
-

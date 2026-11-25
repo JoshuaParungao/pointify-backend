@@ -9,6 +9,7 @@ const customerRoutes = require("../modules/customers/routes/customer.routes");
 const supplierRoutes = require("../modules/suppliers/routes/supplier.routes");
 const purchaseOrderRoutes = require("../modules/purchase-orders/routes/purchaseOrder.routes");
 const purchaseReceivingRoutes = require("../modules/purchase-receivings/routes/purchaseReceiving.routes");
+const supplierReturnRoutes = require("../modules/supplier-returns/routes/supplierReturn.routes");
 const stockTransferRoutes = require("../modules/stock-transfers/routes/stockTransfer.routes");
 const itemCategoryRoutes = require("../modules/item-categories/routes/itemCategory.routes");
 const unitRoutes = require("../modules/units/routes/unit.routes");
@@ -28,6 +29,20 @@ const omnisearchRoutes = require("../modules/omnisearch/routes/omnisearch.routes
 const paymongoRoutes = require("../modules/paymongo/routes/paymongo.routes");
 
 const router = express.Router();
+const { sendSuccess } = require("../utils/apiResponse");
+
+router.get(["/", ""], (req, res) => {
+  return sendSuccess(res, {
+    message: "POSynctify Cloud POS Backend API is online and operational",
+    data: {
+      service: "posynctify-backend",
+      status: "online",
+      version: "1.0.0",
+      healthCheck: "/api/health",
+      frontend: "https://posynctifycomputerpos.cloud/",
+    },
+  });
+});
 
 router.use("/health", healthRoutes);
 router.use("/auth", authRoutes);
@@ -38,6 +53,7 @@ router.use("/customers", customerRoutes);
 router.use("/suppliers", supplierRoutes);
 router.use("/purchase-orders", purchaseOrderRoutes);
 router.use("/purchase-receivings", purchaseReceivingRoutes);
+router.use("/supplier-returns", supplierReturnRoutes);
 router.use("/stock-transfers", stockTransferRoutes);
 router.use("/item-categories", itemCategoryRoutes);
 router.use("/units", unitRoutes);

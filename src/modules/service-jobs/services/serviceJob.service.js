@@ -6,11 +6,12 @@ const {
   deriveReceivablePaymentState,
 } = require("../../credit-accounts/services/receivableAccount.service");
 const { createAuditLog } = require("../../../utils/auditLogger");
-const { businessDateCode } = require("../../../utils/businessDate");
+const { businessDateCode, parseTransactionDate } = require("../../../utils/businessDate");
 const {
   assertIdempotencyMatch,
   createIdempotencyFingerprint,
 } = require("../../../utils/idempotency");
+const { DEVELOPER_PRISMA_NOT_FILTER } = require("../../../constants/roles");
 
 const SERVICE_REPAIR_TYPES = new Set([
   "ORDINARY_REPAIR",
@@ -1555,6 +1556,10 @@ const createServiceJob = async (actor, payload, database = prisma) => {
       data: {
         jobCode,
         status: "PENDING",
+        receivedAt: parseTransactionDate(
+          payload.receivedAt || payload.transactionDate,
+          new Date()
+        ),
         repairType: payload.repairType,
         jobTitle: payload.jobTitle,
         deviceDescription: payload.deviceDescription || null,
@@ -1626,12 +1631,12 @@ const getServiceTechnicians = async (actor, query = {}) => {
   const branchId = isSuperOwner(actor) ? query.branchId : actor.branchId;
   const where = {
     status: "ACTIVE",
+    NOT: DEVELOPER_PRISMA_NOT_FILTER,
     ...(branchId
       ? {
           OR: [
             { branchId },
-            { branchId: null },
-            { role: { in: ["SUPER_OWNER", "BRANCH_OWNER", "ADMIN"] } },
+            { role: "SUPER_OWNER" },
           ],
         }
       : {}),
@@ -2054,7 +2059,7 @@ const createServicePayment = async (
             amount: toMoneyString(amount),
             referenceNo: payload.referenceNo || null,
             remarks: payload.remarks || null,
-            paidAt: payload.paidAt || undefined,
+            paidAt: parseTransactionDate(payload.paidAt, new Date()),
             idempotencyKey: payload.idempotencyKey || null,
             idempotencyFingerprint,
             serviceJobId: serviceJob.id,
@@ -2906,7 +2911,7 @@ const updateServiceJobStatus = async (
   });
 };
 
-const DEFAULT_SERVICE_CATALOG = [];
+const DEFAULT_SERVICE_CATALOG = require("../../../data/initialServiceCatalog.json");
 
 const SERVICE_CATALOG_SCOPE_KEY = "GLOBAL:service.catalog";
 
@@ -2915,10 +2920,16 @@ const getServiceCatalog = async (actor) => {
     where: { scopeKey: SERVICE_CATALOG_SCOPE_KEY },
   });
 
-  if (!setting) {
+  const existingItems = Array.isArray(setting?.value) ? setting.value : null;
+  const hasLegacyDummyItems = Boolean(
+    existingItems?.some((item) => item && item.id === "sc-clean-laptop")
+  );
+
+  if (!setting || !existingItems || existingItems.length === 0 || hasLegacyDummyItems) {
     try {
-      setting = await prisma.businessSetting.create({
-        data: {
+      setting = await prisma.businessSetting.upsert({
+        where: { scopeKey: SERVICE_CATALOG_SCOPE_KEY },
+        create: {
           scopeKey: SERVICE_CATALOG_SCOPE_KEY,
           key: "service.catalog",
           category: "OPERATION",
@@ -2928,6 +2939,13 @@ const getServiceCatalog = async (actor) => {
           description: "Predefined list of standard service rates, repair classifications, and pricing.",
           isEditable: true,
           isActive: true,
+          ...(actor?.id ? { updatedById: actor.id } : {}),
+        },
+        update: {
+          value: DEFAULT_SERVICE_CATALOG,
+          isEditable: true,
+          isActive: true,
+          ...(actor?.id ? { updatedById: actor.id } : {}),
         },
       });
     } catch {
@@ -2937,7 +2955,9 @@ const getServiceCatalog = async (actor) => {
     }
   }
 
-  const items = Array.isArray(setting?.value) ? setting.value : DEFAULT_SERVICE_CATALOG;
+  const items = Array.isArray(setting?.value) && setting.value.length > 0
+    ? setting.value
+    : DEFAULT_SERVICE_CATALOG;
   return items;
 };
 
@@ -3099,7 +3119,96 @@ const deleteServiceCatalogItem = async (id, actor) => {
   return { success: true, message: "Service catalog item deleted successfully" };
 };
 
-const DEFAULT_SERVICE_PARTS_CATALOG = [];
+const DEFAULT_SERVICE_PARTS_CATALOG = [
+  {
+    id: "sp-lcd-156-slim-30p",
+    name: "Laptop LCD Screen 15.6\" Slim 30-Pin FHD IPS",
+    deviceType: "LAPTOP",
+    category: "SCREEN",
+    costPrice: 5000,
+    markupAmount: 2500,
+    description: "Standard replacement 15.6 inch 30-pin EDP slim LED/IPS screen panel.",
+    repairType: "ORDINARY_REPAIR",
+    isActive: true,
+  },
+  {
+    id: "sp-lcd-140-slim-30p",
+    name: "Laptop LCD Screen 14.0\" Slim 30-Pin FHD",
+    deviceType: "LAPTOP",
+    category: "SCREEN",
+    costPrice: 4200,
+    markupAmount: 2000,
+    description: "Standard replacement 14.0 inch 30-pin EDP slim LED screen panel.",
+    repairType: "ORDINARY_REPAIR",
+    isActive: true,
+  },
+  {
+    id: "sp-thermal-paste-paste",
+    name: "High-Performance Thermal Paste (Syringe / Application)",
+    deviceType: "PC COMPONENT",
+    category: "CONSUMABLE",
+    costPrice: 150,
+    markupAmount: 300,
+    description: "Premium high thermal conductivity silicone-free compound.",
+    repairType: "ORDINARY_REPAIR",
+    isActive: true,
+  },
+  {
+    id: "sp-thermal-pad-kit",
+    name: "Thermal Pad Replacement Kit (VRAM / MOSFET)",
+    deviceType: "GPU",
+    category: "CONSUMABLE",
+    costPrice: 350,
+    markupAmount: 450,
+    description: "0.5mm - 1.5mm thermal conductive silicone pads for GPU and motherboard VRAM.",
+    repairType: "BOARD_LEVEL_REPAIR",
+    isActive: true,
+  },
+  {
+    id: "sp-laptop-battery-std",
+    name: "Standard Laptop Replacement Battery (Internal / 3-4 Cell)",
+    deviceType: "LAPTOP",
+    category: "BATTERY",
+    costPrice: 1800,
+    markupAmount: 1200,
+    description: "OEM replacement battery pack for common Acer, Asus, Lenovo, HP units.",
+    repairType: "ORDINARY_REPAIR",
+    isActive: true,
+  },
+  {
+    id: "sp-laptop-keyboard-std",
+    name: "Laptop Internal Keyboard Replacement",
+    deviceType: "LAPTOP",
+    category: "KEYBOARD",
+    costPrice: 850,
+    markupAmount: 650,
+    description: "Internal chiclet keyboard replacement for standard laptops.",
+    repairType: "ORDINARY_REPAIR",
+    isActive: true,
+  },
+  {
+    id: "sp-power-ic-chip",
+    name: "Power Management IC / MOSFET Chip",
+    deviceType: "MOTHERBOARD",
+    category: "IC CHIP",
+    costPrice: 450,
+    markupAmount: 1050,
+    description: "Charging controller, 19V rail MOSFET, or 3.3V/5V power buck regulator chip.",
+    repairType: "BOARD_LEVEL_REPAIR",
+    isActive: true,
+  },
+  {
+    id: "sp-dc-jack-port",
+    name: "Laptop DC Power Jack / Charging Port",
+    deviceType: "LAPTOP",
+    category: "PORT",
+    costPrice: 250,
+    markupAmount: 500,
+    description: "Harness cable or solder-type DC-in charging connector.",
+    repairType: "ORDINARY_REPAIR",
+    isActive: true,
+  },
+];
 
 const SERVICE_PARTS_CATALOG_SCOPE_KEY = "GLOBAL:service.parts.catalog";
 

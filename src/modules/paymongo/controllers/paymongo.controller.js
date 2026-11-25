@@ -35,7 +35,7 @@ const createCheckoutSession = async (req, res, next) => {
 
     const session = await paymongoService.createCheckoutSession({
       amount: numericAmount,
-      description: description || `Pointify Order ${referenceNumber || ""}`,
+      description: description || `POSynctify Order ${referenceNumber || ""}`,
       referenceNumber,
       customerName,
       customerEmail,
