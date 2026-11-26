@@ -65,6 +65,12 @@ router.patch(
 );
 
 router.post(
+  "/:id/email-receipt",
+  requirePermission(PERMISSIONS.VIEW_SALES),
+  saleController.emailWarrantyReceipt
+);
+
+router.post(
   "/:id/swap-serial",
   requirePermission(PERMISSIONS.MANAGE_SALES),
   validate(swapSaleSerialSchema),

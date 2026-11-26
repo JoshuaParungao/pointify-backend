@@ -274,6 +274,36 @@ const swapSaleSerial = async (req, res, next) => {
   }
 };
 
+const emailService = require("../../email/services/email.service");
+
+const emailWarrantyReceipt = async (req, res, next) => {
+  try {
+    const sale = await saleService.getSaleById(req.user, req.params.id);
+    const targetEmail = req.body?.recipientEmail?.trim() || sale.customer?.email || sale.customerEmail;
+
+    if (!targetEmail) {
+      return res.status(400).json({
+        success: false,
+        message: "Walang nakalagay na customer email address. Pakisulat ang email ng customer.",
+      });
+    }
+
+    const result = await emailService.sendWarrantyReceiptEmail({
+      sale,
+      recipientEmail: targetEmail,
+      pdfBase64: req.body?.pdfBase64,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `Tagumpay na naipadala ang Warranty E-Receipt sa ${targetEmail}`,
+      data: result,
+    });
+  } catch (error) {
+    return handleSaleError(error, res, next);
+  }
+};
+
 module.exports = {
   createSale,
   syncOfflineSale,
@@ -284,4 +314,5 @@ module.exports = {
   createCreditAccountFromSale,
   cancelSale,
   swapSaleSerial,
+  emailWarrantyReceipt,
 };
