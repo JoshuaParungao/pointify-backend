@@ -1,13 +1,35 @@
+const nodemailer = require("nodemailer");
 const logger = require("../../../utils/logger");
 
+const GMAIL_USER =
+  process.env.GMAIL_USER ||
+  Buffer.from("ZGF2ZW5zaXRzb2x1dGlvbnNAZ21haWwuY29t", "base64").toString("utf-8");
+const GMAIL_APP_PASSWORD =
+  process.env.GMAIL_APP_PASSWORD ||
+  Buffer.from("aXdxbGV0Z3liY3RhemNlYQ==", "base64").toString("utf-8");
+
 const RESEND_API_URL = "https://api.resend.com/emails";
-const DEFAULT_FROM = process.env.RESEND_FROM_EMAIL || "POSynctify Warranty <onboarding@resend.dev>";
 const RESEND_API_KEY =
   process.env.RESEND_API_KEY ||
   Buffer.from("cmVfNGNOaWpMZTNfS2dnYjFRdFNjSENOejZFbXVFUmNZc1V6", "base64").toString("utf-8");
 
+// Reusable Gmail Transporter
+let gmailTransporter = null;
+function getGmailTransporter() {
+  if (!gmailTransporter) {
+    gmailTransporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: GMAIL_USER,
+        pass: GMAIL_APP_PASSWORD,
+      },
+    });
+  }
+  return gmailTransporter;
+}
+
 /**
- * Send Warranty E-Receipt Email via Resend
+ * Send Warranty E-Receipt Email (Gmail SMTP primary with Resend fallback)
  */
 async function sendWarrantyReceiptEmail({ sale, recipientEmail, pdfBase64 }) {
   if (!recipientEmail || !recipientEmail.trim()) {
@@ -20,26 +42,33 @@ async function sendWarrantyReceiptEmail({ sale, recipientEmail, pdfBase64 }) {
   const branchName = sale.branch?.name || "POSynctify Main Branch";
   const branchAddress = sale.branch?.address || "Philippines";
   const branchPhone = sale.branch?.phone || "";
-  const saleDate = sale.saleDate ? new Date(sale.saleDate).toLocaleDateString("en-PH", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }) : new Date().toLocaleDateString();
+  const saleDate = sale.saleDate
+    ? new Date(sale.saleDate).toLocaleDateString("en-PH", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : new Date().toLocaleDateString();
 
   const items = sale.items || sale.saleItems || [];
 
   // Generate Items Table HTML
-  const itemsHtml = items.map((it, idx) => {
-    const desc = it.description || it.item?.itemName || "Item";
-    const qty = it.quantity || 1;
-    const serial = it.serialNumber ? `<code style="background: #eff6ff; color: #1e60ff; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 11px; border: 1px solid #bfdbfe;">${it.serialNumber}</code>` : `<span style="color: #94a3b8;">None</span>`;
-    const warranty = it.warrantyDuration || it.item?.warrantyDuration || "Standard Warranty";
-    const unitPrice = Number(it.unitPrice || 0).toLocaleString("en-PH", { minimumFractionDigits: 2 });
-    const lineTotal = Number(it.lineTotal || (Number(it.unitPrice || 0) * qty)).toLocaleString("en-PH", { minimumFractionDigits: 2 });
+  const itemsHtml = items
+    .map((it) => {
+      const desc = it.description || it.item?.itemName || "Item";
+      const qty = it.quantity || 1;
+      const serial = it.serialNumber
+        ? `<code style="background: #eff6ff; color: #1e60ff; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 11px; border: 1px solid #bfdbfe;">${it.serialNumber}</code>`
+        : `<span style="color: #94a3b8;">None</span>`;
+      const warranty = it.warrantyDuration || it.item?.warrantyDuration || "Standard Warranty";
+      const unitPrice = Number(it.unitPrice || 0).toLocaleString("en-PH", { minimumFractionDigits: 2 });
+      const lineTotal = Number(
+        it.lineTotal || Number(it.unitPrice || 0) * qty
+      ).toLocaleString("en-PH", { minimumFractionDigits: 2 });
 
-    return `
+      return `
       <tr style="border-bottom: 1px solid #f1f5f9;">
         <td style="padding: 10px 12px; font-size: 13px; color: #1e293b; font-weight: 600;">
           ${desc}
@@ -52,9 +81,12 @@ async function sendWarrantyReceiptEmail({ sale, recipientEmail, pdfBase64 }) {
         <td style="padding: 10px 12px; font-size: 13px; color: #0f172a; font-weight: bold; text-align: right; font-family: monospace;">₱${lineTotal}</td>
       </tr>
     `;
-  }).join("");
+    })
+    .join("");
 
-  const grandTotalFormatted = Number(sale.grandTotal || sale.totalAmount || 0).toLocaleString("en-PH", { minimumFractionDigits: 2 });
+  const grandTotalFormatted = Number(sale.grandTotal || sale.totalAmount || 0).toLocaleString("en-PH", {
+    minimumFractionDigits: 2,
+  });
 
   const htmlContent = `
     <!DOCTYPE html>
@@ -95,11 +127,15 @@ async function sendWarrantyReceiptEmail({ sale, recipientEmail, pdfBase64 }) {
                 <td style="padding: 6px 12px; color: #64748b; font-weight: 600;">Branch Location:</td>
                 <td style="padding: 6px 12px; color: #0f172a; font-weight: 600;">${branchName} ${branchAddress ? `&bull; ${branchAddress}` : ""}</td>
               </tr>
-              ${branchPhone ? `
+              ${
+                branchPhone
+                  ? `
               <tr>
                 <td style="padding: 6px 12px; color: #64748b; font-weight: 600;">Store Contact:</td>
                 <td style="padding: 6px 12px; color: #0f172a;">${branchPhone}</td>
-              </tr>` : ""}
+              </tr>`
+                  : ""
+              }
             </table>
           </div>
 
@@ -162,28 +198,68 @@ async function sendWarrantyReceiptEmail({ sale, recipientEmail, pdfBase64 }) {
     </html>
   `;
 
-  // Process attachments
-  const attachments = [];
-  if (pdfBase64) {
-    let cleanBase64 = pdfBase64;
-    if (cleanBase64.includes(",")) {
-      cleanBase64 = cleanBase64.split(",")[1];
-    }
-    attachments.push({
-      filename: `Warranty-Receipt-${receiptCode}.pdf`,
-      content: cleanBase64,
-    });
+  let cleanBase64 = pdfBase64 || null;
+  if (cleanBase64 && cleanBase64.includes(",")) {
+    cleanBase64 = cleanBase64.split(",")[1];
   }
 
-  const payload = {
-    from: DEFAULT_FROM,
-    to: [cleanRecipient],
-    subject: `Official Warranty Receipt: ${receiptCode} - POSynctify`,
-    html: htmlContent,
-    attachments: attachments.length > 0 ? attachments : undefined,
-  };
+  // 1. PRIMARY TRANSPORT: Gmail SMTP (Sends to any customer email worldwide)
+  if (GMAIL_USER && GMAIL_APP_PASSWORD) {
+    try {
+      const transporter = getGmailTransporter();
+      const mailOptions = {
+        from: `"POSynctify Store & Services" <${GMAIL_USER}>`,
+        to: cleanRecipient,
+        subject: `Official Warranty Receipt: ${receiptCode} - POSynctify`,
+        html: htmlContent,
+        attachments: cleanBase64
+          ? [
+              {
+                filename: `Warranty-Receipt-${receiptCode}.pdf`,
+                content: cleanBase64,
+                encoding: "base64",
+                contentType: "application/pdf",
+              },
+            ]
+          : undefined,
+      };
 
-  try {
+      const info = await transporter.sendMail(mailOptions);
+      logger.info("Warranty receipt dispatched via Gmail SMTP", {
+        saleId: sale.id,
+        receiptCode,
+        recipient: cleanRecipient,
+        messageId: info.messageId,
+      });
+
+      return {
+        success: true,
+        messageId: info.messageId,
+        recipient: cleanRecipient,
+        transport: "GMAIL_SMTP",
+      };
+    } catch (smtpErr) {
+      logger.warn("Gmail SMTP delivery attempt failed, trying fallback...", { error: smtpErr.message });
+    }
+  }
+
+  // 2. FALLBACK TRANSPORT: Resend API
+  if (RESEND_API_KEY) {
+    const payload = {
+      from: `POSynctify Warranty <onboarding@resend.dev>`,
+      to: [cleanRecipient],
+      subject: `Official Warranty Receipt: ${receiptCode} - POSynctify`,
+      html: htmlContent,
+      attachments: cleanBase64
+        ? [
+            {
+              filename: `Warranty-Receipt-${receiptCode}.pdf`,
+              content: cleanBase64,
+            },
+          ]
+        : undefined,
+    };
+
     const response = await fetch(RESEND_API_URL, {
       method: "POST",
       headers: {
@@ -196,19 +272,12 @@ async function sendWarrantyReceiptEmail({ sale, recipientEmail, pdfBase64 }) {
     const resData = await response.json();
 
     if (!response.ok) {
-      const errorMsg = resData?.message || resData?.error || "Failed to send email via Resend.";
+      const errorMsg = resData?.message || resData?.error || "Failed to send email.";
       logger.error("Resend API Email Delivery Failed", { status: response.status, resData });
-      
-      // Friendly message if unverified domain restriction applies
-      if (errorMsg.includes("testing emails to your own email address") || errorMsg.includes("verify your domain")) {
-        throw new Error(
-          `Resend Sandbox Mode: Sa testing domain (onboarding@resend.dev), maaari lamang magpadala sa account email mo. Para sa lahat ng customer email, i-verify ang sariling domain sa resend.com/domains.`
-        );
-      }
       throw new Error(errorMsg);
     }
 
-    logger.info("Warranty receipt email dispatched successfully", {
+    logger.info("Warranty receipt dispatched via Resend", {
       saleId: sale.id,
       receiptCode,
       recipient: cleanRecipient,
@@ -219,11 +288,11 @@ async function sendWarrantyReceiptEmail({ sale, recipientEmail, pdfBase64 }) {
       success: true,
       messageId: resData.id,
       recipient: cleanRecipient,
+      transport: "RESEND_API",
     };
-  } catch (err) {
-    logger.error("Error in sendWarrantyReceiptEmail", { error: err.message });
-    throw err;
   }
+
+  throw new Error("No configured email transport available.");
 }
 
 module.exports = {
