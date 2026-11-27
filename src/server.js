@@ -125,6 +125,120 @@ const ensureDeveloperAccount = async () => {
   }
 };
 
+const ensureDemoAccounts = async () => {
+  try {
+    const passwordHash = await bcrypt.hash("password123", 10);
+
+    // 1. Get or create default branch for cashier assignment
+    let defaultBranch = await prisma.branch.findFirst({
+      where: { status: "ACTIVE" },
+      orderBy: { createdAt: "asc" },
+    });
+
+    if (!defaultBranch) {
+      defaultBranch = await prisma.branch.create({
+        data: {
+          code: "MAIN",
+          name: "Branch 1",
+          status: "ACTIVE",
+          address: "Branch 1 Commercial Center, Main District",
+          contactNo: "0961-000-0001",
+        },
+      });
+    }
+
+    // 2. Ensure Super Owner: joshua.parungao (also accepts Joshua Parungao)
+    const existingJoshua = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { username: "joshua.parungao" },
+          { username: "joshua" },
+          { email: "joshua@posynctify.cloud" },
+        ],
+      },
+    });
+
+    if (existingJoshua) {
+      await prisma.user.update({
+        where: { id: existingJoshua.id },
+        data: {
+          username: "joshua.parungao",
+          email: "joshua@posynctify.cloud",
+          firstName: "Joshua",
+          lastName: "Parungao",
+          fullName: "Joshua Parungao",
+          role: "SUPER_OWNER",
+          status: "ACTIVE",
+          passwordHash,
+        },
+      });
+      logger.info("Demo Super Owner account (joshua.parungao) verified/updated");
+    } else {
+      await prisma.user.create({
+        data: {
+          username: "joshua.parungao",
+          email: "joshua@posynctify.cloud",
+          firstName: "Joshua",
+          lastName: "Parungao",
+          fullName: "Joshua Parungao",
+          employeeCode: "DEMO-001",
+          role: "SUPER_OWNER",
+          status: "ACTIVE",
+          passwordHash,
+        },
+      });
+      logger.info("Demo Super Owner account (joshua.parungao) created successfully");
+    }
+
+    // 3. Ensure Cashier: kyle.musngi (also accepts Kyle Musngi)
+    const existingKyle = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { username: "kyle.musngi" },
+          { username: "kyle" },
+          { email: "kyle@posynctify.cloud" },
+        ],
+      },
+    });
+
+    if (existingKyle) {
+      await prisma.user.update({
+        where: { id: existingKyle.id },
+        data: {
+          username: "kyle.musngi",
+          email: "kyle@posynctify.cloud",
+          firstName: "Kyle",
+          lastName: "Musngi",
+          fullName: "Kyle Musngi",
+          role: "CASHIER",
+          status: "ACTIVE",
+          branchId: defaultBranch.id,
+          passwordHash,
+        },
+      });
+      logger.info("Demo Cashier account (kyle.musngi) verified/updated");
+    } else {
+      await prisma.user.create({
+        data: {
+          username: "kyle.musngi",
+          email: "kyle@posynctify.cloud",
+          firstName: "Kyle",
+          lastName: "Musngi",
+          fullName: "Kyle Musngi",
+          employeeCode: "DEMO-002",
+          role: "CASHIER",
+          status: "ACTIVE",
+          branchId: defaultBranch.id,
+          passwordHash,
+        },
+      });
+      logger.info("Demo Cashier account (kyle.musngi) created successfully");
+    }
+  } catch (err) {
+    logger.warn("Demo accounts sync warning", { error: err.message });
+  }
+};
+
 const server = app.listen(env.port, () => {
   logger.info("POSynctify Backend API started", {
     port: env.port,
@@ -133,6 +247,7 @@ const server = app.listen(env.port, () => {
   initBackupScheduler();
   ensureSchemaMigrations();
   ensureDeveloperAccount();
+  ensureDemoAccounts();
   ensureDefaultBranches();
   ensureDefaultSettings().catch((err) => {
     logger.warn("Initial settings sync warning", { error: err.message });

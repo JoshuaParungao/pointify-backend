@@ -51,6 +51,7 @@ const login = async ({ identifier, password }) => {
       OR: [
         { username: normalizedIdentifier },
         { email: normalizedIdentifier },
+        { fullName: { equals: identifier.trim(), mode: "insensitive" } },
       ],
     },
     select: {

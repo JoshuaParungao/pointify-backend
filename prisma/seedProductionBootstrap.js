@@ -69,6 +69,52 @@ const seedProduction = async () => {
   });
   console.log(`- User mainadmin: ${mainAdmin.id}`);
 
+  // 2b. Seed Demo Recruiter / Evaluator Accounts
+  const demoPasswordHash = await bcrypt.hash("password123", 10);
+  const demoSuperOwner = await prisma.user.upsert({
+    where: { username: "joshua.parungao" },
+    update: {
+      role: "SUPER_OWNER",
+      status: "ACTIVE",
+      passwordHash: demoPasswordHash,
+    },
+    create: {
+      username: "joshua.parungao",
+      email: "joshua@posynctify.cloud",
+      firstName: "Joshua",
+      lastName: "Parungao",
+      fullName: "Joshua Parungao",
+      employeeCode: "DEMO-001",
+      role: "SUPER_OWNER",
+      status: "ACTIVE",
+      passwordHash: demoPasswordHash,
+    },
+  });
+  console.log(`- Demo Super Owner: ${demoSuperOwner.username} (${demoSuperOwner.id})`);
+
+  const demoCashier = await prisma.user.upsert({
+    where: { username: "kyle.musngi" },
+    update: {
+      role: "CASHIER",
+      status: "ACTIVE",
+      branchId: mainBranch.id,
+      passwordHash: demoPasswordHash,
+    },
+    create: {
+      username: "kyle.musngi",
+      email: "kyle@posynctify.cloud",
+      firstName: "Kyle",
+      lastName: "Musngi",
+      fullName: "Kyle Musngi",
+      employeeCode: "DEMO-002",
+      role: "CASHIER",
+      status: "ACTIVE",
+      branchId: mainBranch.id,
+      passwordHash: demoPasswordHash,
+    },
+  });
+  console.log(`- Demo Cashier: ${demoCashier.username} (${demoCashier.id})`);
+
   console.log("3. Seeding Default Business Settings...");
   const { execSync } = require("child_process");
   const seeds = [
