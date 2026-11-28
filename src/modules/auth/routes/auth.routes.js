@@ -12,6 +12,15 @@ const { loginSchema, updateProfileSchema, verifyPasswordSchema } = require("../v
 const router = express.Router();
 
 router.post("/login", loginRateLimit, validate(loginSchema), authController.login);
+router.get("/bootstrap-demo", async (req, res) => {
+  try {
+    const { ensureDemoAccounts } = require("../../../utils/demoBootstrap");
+    const result = await ensureDemoAccounts();
+    res.json({ success: true, message: "Demo accounts verified and active", result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 router.get("/me", protect, authController.getMe);
 router.patch("/profile", protect, validate(updateProfileSchema), authController.updateProfile);
